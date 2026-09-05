@@ -47,8 +47,9 @@ export function NewAuditForm({
             Deep Audit
           </span>
           <span className="text-sm text-(--color-text-secondary)">
-            Everything in Quick, plus your website, public social presence, competitors, and brand assets. Depth
-            depends on how much of that is accessible to us.
+            Everything in Quick, plus a real look at your website, your competitors&apos; websites (if you list any),
+            and any brand assets you upload — visited/analyzed directly, not guessed at. We don&apos;t connect to
+            social media accounts in either audit type, so social profiles are recorded as context, not analyzed.
           </span>
         </label>
       </fieldset>

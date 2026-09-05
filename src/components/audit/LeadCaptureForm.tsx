@@ -8,7 +8,7 @@ import { submitLeadAction, type LeadActionState } from "@/lib/actions/leads";
 
 const initialState: LeadActionState = {};
 
-export function LeadCaptureForm({ auditId }: { auditId: string }) {
+export function LeadCaptureForm({ shareToken }: { shareToken: string }) {
   const [state, formAction, isPending] = useActionState(submitLeadAction, initialState);
 
   if (state.success) {
@@ -17,7 +17,7 @@ export function LeadCaptureForm({ auditId }: { auditId: string }) {
 
   return (
     <form action={formAction} className="flex flex-col gap-4" noValidate>
-      <input type="hidden" name="audit_id" value={auditId} />
+      <input type="hidden" name="share_token" value={shareToken} />
       {state.error && <Alert tone="error">{state.error}</Alert>}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Input label="Name" name="name" required />

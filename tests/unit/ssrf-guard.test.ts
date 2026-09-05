@@ -66,8 +66,20 @@ describe("isPrivateOrReservedIp", () => {
     expect(isPrivateOrReservedIp("fd12:3456::1")).toBe(true);
   });
 
-  it("blocks IPv4-mapped IPv6 addresses (defense in depth — the embedded v4 is not re-checked, so mapped addresses are blocked outright)", () => {
-    expect(isPrivateOrReservedIp("::ffff:8.8.8.8")).toBe(true);
+  it("unwraps IPv4-mapped IPv6 addresses and checks the embedded v4 address itself", () => {
+    // A previous version blocked every ::ffff: address outright — safe,
+    // but for the wrong reason, and it would have falsely rejected a
+    // legitimate public site whose DNS returned a mapped address. The
+    // embedded address is what actually matters.
+    expect(isPrivateOrReservedIp("::ffff:8.8.8.8")).toBe(false);
+    expect(isPrivateOrReservedIp("::ffff:127.0.0.1")).toBe(true);
+    expect(isPrivateOrReservedIp("::ffff:10.0.0.1")).toBe(true);
+    expect(isPrivateOrReservedIp("::ffff:169.254.169.254")).toBe(true);
+  });
+
+  it("blocks the NAT64 well-known prefix and 6to4 addresses (can smuggle a private v4 address we don't unwrap)", () => {
+    expect(isPrivateOrReservedIp("64:ff9b::8.8.8.8")).toBe(true);
+    expect(isPrivateOrReservedIp("2002:c000:0204::1")).toBe(true);
   });
 
   it("allows ordinary public IPv6 addresses", () => {

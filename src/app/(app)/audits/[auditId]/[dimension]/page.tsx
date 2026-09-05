@@ -37,6 +37,13 @@ export default async function DimensionDetailPage({ params }: DimensionPageProps
     ((dim?.subcriteria as { key: string; score: number | null; rationale: string }[] | undefined) ?? []).map((s) => [s.key, s])
   );
 
+  // Evidence traceability (hardening pass Known Issue #2): each finding's
+  // evidence_ids are real audit_evidence.id values resolved server-side
+  // during the pipeline run (see evidenceLinking.ts) — never model-supplied
+  // text taken at face value. Build a lookup so we can show, per finding,
+  // the exact evidence entries that were cited as support.
+  const evidenceById = new Map((evidence ?? []).map((e) => [e.id, e]));
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -100,15 +107,39 @@ export default async function DimensionDetailPage({ params }: DimensionPageProps
           <CardBody>
             {findings && findings.length > 0 ? (
               <ul className="flex flex-col gap-4">
-                {findings.map((f) => (
-                  <li key={f.id} className="flex flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                      <FindingTypeBadge type={f.type} />
-                      <span className="font-medium text-(--color-text)">{f.title}</span>
-                    </div>
-                    <p className="text-sm text-(--color-text-secondary)">{f.description}</p>
-                  </li>
-                ))}
+                {findings.map((f) => {
+                  const citedEvidence = (f.evidence_ids ?? [])
+                    .map((id) => evidenceById.get(id))
+                    .filter((e): e is NonNullable<typeof e> => Boolean(e));
+                  return (
+                    <li key={f.id} className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <FindingTypeBadge type={f.type} />
+                        <span className="font-medium text-(--color-text)">{f.title}</span>
+                      </div>
+                      <p className="text-sm text-(--color-text-secondary)">{f.description}</p>
+                      {citedEvidence.length > 0 ? (
+                        <details className="mt-1">
+                          <summary className="cursor-pointer text-xs font-medium text-(--color-blue)">
+                            Why: {citedEvidence.length} supporting evidence item{citedEvidence.length === 1 ? "" : "s"}
+                          </summary>
+                          <ul className="mt-1 flex flex-col gap-1 border-l-2 border-(--color-border) pl-3">
+                            {citedEvidence.map((e) => (
+                              <li key={e.id} className="text-xs text-(--color-text-secondary)">
+                                <span className="rounded-full bg-slate-100 px-1.5 py-0.5 font-medium capitalize">{e.evidence_status}</span>{" "}
+                                {e.content}
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      ) : (
+                        <p className="mt-1 text-xs italic text-(--color-text-secondary)">
+                          Synthesized from the overall dimension analysis rather than a single evidence item.
+                        </p>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             ) : (
               <EmptyState title="No findings for this dimension" />

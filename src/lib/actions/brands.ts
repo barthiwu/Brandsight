@@ -65,8 +65,28 @@ export async function updateBrandAction(brandId: string, _prev: ActionState, for
   return { success: "Brand updated." };
 }
 
+const STORAGE_BUCKET = process.env.STORAGE_BUCKET_NAME ?? "brand-assets";
+
+/**
+ * Deletes a brand and, via the DB's `on delete cascade` chain (brands ->
+ * audits -> every audit-scoped child table, migrations 0001-0002), every
+ * audit and audit record under it. That cascade removes rows, not the
+ * actual files sitting in Supabase Storage, so uploaded asset files are
+ * removed explicitly first — otherwise they'd leak in the bucket forever
+ * with no remaining database row pointing back to them.
+ */
 export async function deleteBrandAction(brandId: string) {
   const supabase = await createClient();
+  const { data: audits } = await supabase.from("audits").select("id").eq("brand_id", brandId);
+  const auditIds = (audits ?? []).map((a) => a.id);
+
+  if (auditIds.length > 0) {
+    const { data: assets } = await supabase.from("audit_assets").select("storage_path").in("audit_id", auditIds);
+    if (assets && assets.length > 0) {
+      await supabase.storage.from(STORAGE_BUCKET).remove(assets.map((a) => a.storage_path));
+    }
+  }
+
   await supabase.from("brands").delete().eq("id", brandId);
   revalidatePath("/brands");
   redirect("/brands");

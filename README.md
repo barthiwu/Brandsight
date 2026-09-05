@@ -7,6 +7,15 @@ Score, eight dimension scores, evidence-backed findings, prioritized
 recommendations, and a 30-day action plan. It's built as a lead-generation
 tool for Blitz SMA.
 
+**Documentation:** this README covers setup, environment variables, and
+day-to-day development. For deeper reference see
+[`docs/architecture.md`](docs/architecture.md) (module boundaries and
+request flow), [`docs/security.md`](docs/security.md) (the full threat
+model and controls), [`docs/audit-engine.md`](docs/audit-engine.md) (every
+dimension, weight, and pipeline stage), and
+[`docs/final-build-audit.md`](docs/final-build-audit.md) (a PASS/PARTIAL/
+FAIL/NOT-VERIFIABLE-LIVE self-audit against the full V1 specification).
+
 ## Stack
 
 - **Next.js 16** (App Router, Turbopack, Server Actions, `proxy.ts` middleware)
@@ -63,6 +72,7 @@ What each migration does:
 | `0005` | Row Level Security — every table, owner-chain policies |
 | `0006` | The `brand-assets` Storage bucket and its access policies |
 | `0007` | Locks down `try_lock_audit_processing`'s default PUBLIC execute grant to `service_role` only (see "Security notes" below) |
+| `0008` | `check_and_record_rate_limit` — an atomic, advisory-lock-serialized replacement for the original check-then-insert rate limiter (see "Security notes" below) |
 
 ### Demo data
 
@@ -93,33 +103,56 @@ npm run build       # next build
 npm run test:e2e    # playwright — needs a running app + real Supabase/OpenAI
 ```
 
-`npm run test` runs 82 unit tests covering the deterministic scoring
-engine, priority ranking, SSRF IP-range classification, validation
-schemas, and the audit question config — all executed and passing.
-It also collects (but skips by default) integration and security suites
-that need a real, reachable Supabase project: see
+`npm run test` runs 154 unit tests covering the deterministic scoring
+engine, priority ranking and tie-breaking, SSRF/IP-range classification
+(including a mocked-`fetch` redirect-hop SSRF check), prompt-injection
+escaping, validation schemas, the audit question config and server-side
+readiness gate, asset-analysis schemas, competitor-evidence formatting,
+evidence-citation resolution, the public lead-capture share-token
+resolution chain, and the admin email allowlist — all executed and
+passing. It also collects (but skips by default) integration and security
+suites that need a real, reachable Supabase project: see
 `tests/helpers/liveEnv.ts`. Set `RUN_LIVE_INTEGRATION_TESTS=1` (with real
 credentials in the environment) to run them; `RUN_LIVE_E2E_TESTS=1` for
 the Playwright happy-path spec.
 
-The full migration chain, its RLS policies, and the `0007` function
-privilege lockdown have been verified end-to-end against a local Postgres
-16 instance with a minimal stand-in `auth`/`storage` schema (this sandbox
-has no network access to Supabase itself) — not just against a real
-Supabase project. Confirming the same behavior there, and running the
-live integration/E2E suites above, is worth doing once before launch.
+The full migration chain, its RLS policies, and both atomic DB functions
+(`try_lock_audit_processing`, `check_and_record_rate_limit`) have been
+verified end-to-end against a local Postgres 16 instance with a minimal
+stand-in `auth`/`storage` schema (this sandbox has no network access to
+Supabase itself) — not just read as SQL and trusted. See
+`scripts/verification/README.md` for what each script proves and how to
+re-run them, including two real-concurrency race tests (30 concurrent
+rate-limit calls; 25 concurrent audit-processing lock attempts) that
+confirm the atomicity fixes actually close the races they're meant to,
+not just in theory. Confirming the same behavior against the real hosted
+Supabase project, and running the live integration/E2E suites above, is
+the concrete next step before launch — see
+`docs/final-build-audit.md` for the complete list of what remains
+NOT VERIFIABLE LIVE and why.
 
 ## Architecture notes
+
+See [`docs/architecture.md`](docs/architecture.md) for the full request
+flow and module map. The highlights:
 
 - **The AI never invents the score.** `src/lib/scoring/` is a deterministic,
   weighted scoring engine — the AI pipeline produces qualitative analysis
   (subcriteria ratings, findings, recommendations) and this engine turns
   that into the actual numbers, renormalizing over whatever evidence was
-  actually available rather than treating "unavailable" as zero.
-- **The AI pipeline** (`src/lib/ai/pipeline/`) runs 9 stages; stages 2, 6,
-  and 9 are deterministic application code rather than AI calls, by
-  design — evidence analysis, prioritization ranking, and report assembly
-  don't need an LLM once the qualitative stages have run.
+  actually available rather than treating "unavailable" as zero. See
+  [`docs/audit-engine.md`](docs/audit-engine.md) for every weight and the
+  full 9-stage pipeline breakdown.
+- **Evidence traceability.** Every finding cites real evidence via a
+  labeled index resolved server-side after the model responds — a
+  hallucinated citation is dropped, never persisted as if it were real
+  (`src/lib/ai/pipeline/evidenceLinking.ts`).
+- **Real asset and competitor analysis.** Uploaded images/PDFs get a real
+  OpenAI vision/file-input analysis per asset (Deep audits only); Deep
+  audits also fetch each competitor's site through the same SSRF-guarded
+  fetcher used for the primary website. Quick audits never do either, and
+  neither audit type ever analyzes actual social media content — the UI
+  says so explicitly rather than implying otherwise.
 - **SSRF protection** (`src/lib/evidence/`) blocks localhost, private/
   reserved IP ranges, and the cloud metadata endpoint, both on the initial
   URL and on every redirect hop. The pure IP-classification logic lives in
@@ -130,19 +163,40 @@ live integration/E2E suites above, is worth doing once before launch.
   detail page. Starting an audit snapshots relevant brand data into that
   audit's `audit_responses` rows, so a later edit to the brand profile
   doesn't retroactively change a completed audit's report.
+- **Data deletion.** A user can delete an audit, a brand (and everything
+  under it), or their entire account (typed "DELETE" confirmation) from
+  Settings — each flow removes the relevant Supabase Storage objects
+  before the corresponding database cascade, since DB cascades don't reach
+  into Storage.
 
 ### Security notes
 
-- `try_lock_audit_processing` is a `SECURITY DEFINER` function (it bypasses
-  RLS to atomically claim an audit for processing). Postgres grants EXECUTE
-  on new functions to `PUBLIC` by default, which would let any authenticated
-  or anonymous caller flip an arbitrary guessed audit UUID to "processing" —
-  migration `0007` revokes that and grants EXECUTE to `service_role` only.
+Full detail in [`docs/security.md`](docs/security.md). The highlights:
+
+- `try_lock_audit_processing` and `check_and_record_rate_limit` are both
+  `SECURITY DEFINER` functions (they bypass RLS to atomically claim an
+  audit for processing / record a rate-limit event). Postgres grants
+  EXECUTE on new functions to `PUBLIC` by default, which would let any
+  authenticated or anonymous caller invoke them directly — migration
+  `0007` revokes that and grants EXECUTE to `service_role` only.
+- Rate limiting and duplicate-audit-processing protection are both
+  single-atomic-statement designs (`pg_advisory_xact_lock` for the rate
+  limiter; a conditional `UPDATE ... RETURNING` for the processing lock),
+  verified under real concurrent load in `scripts/verification/` rather
+  than just reasoned about — see that directory's README.
 - The service-role Supabase client (`src/lib/supabase/admin.ts`) is guarded
   with `import "server-only"` so an accidental client-bundle import fails
   the build instead of shipping the key.
 - Every AI-cost-incurring or abuse-prone action goes through the DB-backed
   rate limiter in `src/lib/security/rateLimit.ts` before doing real work.
+- Public lead capture resolves the audit and its owner entirely from the
+  server-validated share token — a client can never supply an `audit_id`
+  or `owner_id` directly (`src/lib/actions/leads.ts`).
+- All external content fed to the AI pipeline (website text, asset
+  analysis, competitor pages) is wrapped, labeled untrusted, and
+  HTML-escaped before being embedded in a prompt, specifically to prevent
+  a scraped page from forging a fake tag boundary and injecting
+  instructions (`src/lib/ai/prompts.ts`).
 
 ## What hasn't been run live
 
@@ -152,8 +206,10 @@ blocks outbound access to `supabase.co`, `api.openai.com`, and
 
 - The app has never been run against a live Supabase project or a real
   OpenAI key — no live signup/login, no live RLS check through the actual
-  Supabase Auth/PostgREST stack, and the 9-stage AI pipeline has never
-  actually been invoked end-to-end.
+  Supabase Auth/PostgREST stack, and the 9-stage AI pipeline (including the
+  real vision/file-input asset analysis and the real competitor/website
+  fetches) has never actually been invoked end-to-end against live
+  services.
 - `next/font/google` (Inter) was replaced with a system-font stack (see the
   comment in `src/app/layout.tsx`) purely so the production build doesn't
   depend on reaching Google Fonts; swapping it back is a one-line change
@@ -163,8 +219,11 @@ blocks outbound access to `supabase.co`, `api.openai.com`, and
   default (see "Verification" above) since they need real network access
   this sandbox doesn't have.
 
-What *has* been verified: the full migration chain, RLS policies, and the
-`0007` privilege lockdown against a real local Postgres 16 instance
-(stubbed `auth`/`storage` schemas); the demo seed script end-to-end against
-that same instance; 82 unit tests; a clean `tsc --noEmit`, a clean
-`eslint`, and a clean `next build` producing all 29 routes.
+What *has* been verified: the full migration chain, RLS policies, and both
+atomic DB functions against a real local Postgres 16 instance (stubbed
+`auth`/`storage` schemas) — including two real-concurrency race tests, not
+just code review; the demo seed script end-to-end against that same
+instance; 154 unit tests; a clean `tsc --noEmit`, a clean `eslint`, and a
+clean `next build` producing all 29 routes. See
+[`docs/final-build-audit.md`](docs/final-build-audit.md) for the complete
+area-by-area PASS/PARTIAL/FAIL/NOT-VERIFIABLE-LIVE breakdown.

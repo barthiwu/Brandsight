@@ -51,7 +51,12 @@ export async function callStructuredStage<T>(params: {
   schema: z.ZodType<T>;
   schemaName: string;
   instructions: string;
-  input: string;
+  /**
+   * Plain text for the text-only pipeline stages, or a full Responses API
+   * input array for stages that attach an image or file (asset vision
+   * analysis — see pipeline/assetAnalysis.ts).
+   */
+  input: string | OpenAI.Responses.ResponseInput;
 }): Promise<T> {
   const client = getOpenAIClient();
   const model = getConfiguredModel();

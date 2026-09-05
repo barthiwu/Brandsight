@@ -112,8 +112,13 @@ export const autosaveBatchSchema = z.object({
 // ---------------------------------------------------------------------------
 // Leads (spec §68-69)
 // ---------------------------------------------------------------------------
+// Identifies the audit by its public share token, never by a client-
+// supplied audit_id — the server resolves the token to an active share,
+// then to the audit and its owner. This is the only supported entry point
+// for lead capture (see src/lib/actions/leads.ts); a client can never name
+// an arbitrary audit UUID directly.
 export const leadCaptureSchema = z.object({
-  audit_id: z.string().uuid(),
+  share_token: z.string().trim().min(16, "Invalid share link").max(128, "Invalid share link"),
   name: z.string().trim().min(1, "Name is required").max(200),
   email: z.string().trim().email("Enter a valid email").max(320),
   phone: z.string().trim().max(40).optional().or(z.literal("")),

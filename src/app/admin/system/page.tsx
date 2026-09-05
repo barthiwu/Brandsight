@@ -52,7 +52,12 @@ export default async function AdminSystemPage() {
         </Card>
         <Card>
           <CardBody>
-            <p className="text-xs text-(--color-text-secondary)">Rate-limited actions (last hour)</p>
+            {/* rate_limit_events only ever records an ALLOWED action (see
+                check_and_record_rate_limit, migration 0008) — a blocked
+                attempt never gets a row at all, so this is total
+                throttle-tracked volume, not a count of blocks. Labeled
+                accordingly rather than implying we track denials we don't. */}
+            <p className="text-xs text-(--color-text-secondary)">Throttle-tracked actions (last hour)</p>
             <p className="mt-1 text-2xl font-semibold text-(--color-text)">{rateLimitEventsLastHour ?? 0}</p>
           </CardBody>
         </Card>

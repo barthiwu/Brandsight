@@ -5,8 +5,10 @@ import { Button } from "@/components/ui/Button";
 import { FindingTypeBadge } from "@/components/ui/Badge";
 import { ScoreDisplay } from "./ScoreDisplay";
 import { DimensionCard } from "./DimensionCard";
+import { DeleteAuditButton } from "./DeleteAuditButton";
 import { ALL_DIMENSION_KEYS, DIMENSION_LABELS, getScoreBand } from "@/lib/scoring/dimensions";
 import { rankByPriority } from "@/lib/scoring/priority";
+import { deleteAuditAction } from "@/lib/actions/audits";
 import type { DimensionKey } from "@/types/database";
 
 export async function AuditOverview({ auditId }: { auditId: string }) {
@@ -155,10 +157,11 @@ export async function AuditOverview({ auditId }: { auditId: string }) {
         </CardBody>
       </Card>
 
-      <div className="flex justify-between">
+      <div className="flex items-center justify-between">
         <Link href={`/audits/${auditId}/action-plan`} className="font-medium text-(--color-blue) hover:underline">
           View your 30-day action plan →
         </Link>
+        <DeleteAuditButton auditId={auditId} deleteAction={deleteAuditAction} />
       </div>
     </div>
   );

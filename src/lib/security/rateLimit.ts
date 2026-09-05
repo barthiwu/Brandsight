@@ -14,11 +14,19 @@ export interface RateLimitResult {
 
 /**
  * Fixed-window rate limiter backed by the `rate_limit_events` table
- * (spec §76-77). Simple by design for V1 — no Redis/Upstash dependency to
- * provision — at the cost of an extra DB round trip per checked action.
- * Every AI-cost-incurring or abuse-prone action in this codebase (signup,
- * signin, audit creation, audit processing, website fetch, uploads, share
- * link generation, lead capture) calls this before doing real work.
+ * (spec §76-77) and the `check_and_record_rate_limit` SECURITY DEFINER
+ * function (migration 0008). Every AI-cost-incurring or abuse-prone action
+ * in this codebase (signup, signin, audit creation, audit processing,
+ * website fetch, uploads, share link generation, lead capture) calls this
+ * before doing real work.
+ *
+ * The count-check and the insert happen inside a single database function
+ * call, serialized per bucket_key with a transaction-scoped advisory lock
+ * (hardening pass §19/§57 — "atomic rate limiting"). The original V1
+ * implementation issued a separate SELECT count and INSERT from the
+ * application, which raced under concurrent requests for the same bucket:
+ * multiple callers could each observe "under limit" before any of them
+ * recorded their event, letting the effective limit be exceeded.
  *
  * Fails OPEN on infrastructure errors (a Supabase outage should not take
  * the whole app down) but logs loudly so it's visible in server logs.
@@ -26,24 +34,17 @@ export interface RateLimitResult {
 export async function checkRateLimit(bucketKey: string, options: RateLimitOptions): Promise<RateLimitResult> {
   try {
     const supabase = createAdminClient();
-    const windowStart = new Date(Date.now() - options.windowSeconds * 1000).toISOString();
+    const { data, error } = await supabase.rpc("check_and_record_rate_limit", {
+      p_bucket_key: bucketKey,
+      p_limit: options.limit,
+      p_window_seconds: options.windowSeconds,
+    });
 
-    const { count, error: countError } = await supabase
-      .from("rate_limit_events")
-      .select("*", { count: "exact", head: true })
-      .eq("bucket_key", bucketKey)
-      .gte("created_at", windowStart);
+    if (error) throw error;
+    const row = data?.[0];
+    if (!row) throw new Error("check_and_record_rate_limit returned no rows.");
 
-    if (countError) throw countError;
-
-    if ((count ?? 0) >= options.limit) {
-      return { allowed: false, remaining: 0 };
-    }
-
-    const { error: insertError } = await supabase.from("rate_limit_events").insert({ bucket_key: bucketKey });
-    if (insertError) throw insertError;
-
-    return { allowed: true, remaining: Math.max(0, options.limit - (count ?? 0) - 1) };
+    return { allowed: row.allowed, remaining: Math.max(0, options.limit - row.current_count) };
   } catch (err) {
     console.error("[rateLimit] check failed, failing open", { bucketKey, err });
     return { allowed: true, remaining: options.limit };

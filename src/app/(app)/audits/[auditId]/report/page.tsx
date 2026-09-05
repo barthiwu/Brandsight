@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/Button";
 import { FindingTypeBadge } from "@/components/ui/Badge";
 import { ScoreDisplay } from "@/components/audit/ScoreDisplay";
 import { ShareToggle } from "@/components/audit/ShareToggle";
-import { LeadCaptureForm } from "@/components/audit/LeadCaptureForm";
 import { ALL_DIMENSION_KEYS, DIMENSION_LABELS, getScoreBand } from "@/lib/scoring/dimensions";
 import { rankByPriority } from "@/lib/scoring/priority";
 
@@ -20,12 +19,13 @@ export default async function ReportPage({ params }: ReportPageProps) {
   const { auditId } = await params;
   const supabase = await createClient();
 
-  const [{ data: audit }, { data: dimensions }, { data: findings }, { data: recommendations }, { data: share }] = await Promise.all([
+  const [{ data: audit }, { data: dimensions }, { data: findings }, { data: recommendations }, { data: share }, { data: evidence }] = await Promise.all([
     supabase.from("audits").select("*, brands(name, industry, website_url)").eq("id", auditId).maybeSingle(),
     supabase.from("audit_dimensions").select("*").eq("audit_id", auditId),
     supabase.from("audit_findings").select("*").eq("audit_id", auditId),
     supabase.from("audit_recommendations").select("*").eq("audit_id", auditId),
     supabase.from("audit_shares").select("*").eq("audit_id", auditId).maybeSingle(),
+    supabase.from("audit_evidence").select("*").eq("audit_id", auditId),
   ]);
 
   if (!audit || audit.status !== "completed") notFound();
@@ -33,6 +33,9 @@ export default async function ReportPage({ params }: ReportPageProps) {
   const brand = (audit as unknown as { brands: { name: string; industry: string | null; website_url: string | null } | null }).brands;
   const dimensionByKey = new Map((dimensions ?? []).map((d) => [d.dimension_key, d]));
   const rankedRecommendations = rankByPriority(recommendations ?? []);
+  // Evidence traceability (hardening pass Known Issue #2) — see the
+  // dimension detail page for the full explanation of evidence_ids.
+  const evidenceById = new Map((evidence ?? []).map((e) => [e.id, e]));
 
   return (
     <div className="flex flex-col gap-8">
@@ -93,16 +96,36 @@ export default async function ReportPage({ params }: ReportPageProps) {
         </CardHeader>
         <CardBody>
           <ul className="flex flex-col gap-4">
-            {(findings ?? []).map((f) => (
-              <li key={f.id} className="flex flex-col gap-1">
-                <div className="flex items-center gap-2">
-                  <FindingTypeBadge type={f.type} />
-                  <span className="text-xs text-(--color-text-secondary)">{DIMENSION_LABELS[f.dimension_key]}</span>
-                </div>
-                <p className="font-medium text-(--color-text)">{f.title}</p>
-                <p className="text-sm text-(--color-text-secondary)">{f.description}</p>
-              </li>
-            ))}
+            {(findings ?? []).map((f) => {
+              const citedEvidence = (f.evidence_ids ?? [])
+                .map((id) => evidenceById.get(id))
+                .filter((e): e is NonNullable<typeof e> => Boolean(e));
+              return (
+                <li key={f.id} className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    <FindingTypeBadge type={f.type} />
+                    <span className="text-xs text-(--color-text-secondary)">{DIMENSION_LABELS[f.dimension_key]}</span>
+                  </div>
+                  <p className="font-medium text-(--color-text)">{f.title}</p>
+                  <p className="text-sm text-(--color-text-secondary)">{f.description}</p>
+                  {citedEvidence.length > 0 && (
+                    <details className="mt-1">
+                      <summary className="cursor-pointer text-xs font-medium text-(--color-blue)">
+                        Why: {citedEvidence.length} supporting evidence item{citedEvidence.length === 1 ? "" : "s"}
+                      </summary>
+                      <ul className="mt-1 flex flex-col gap-1 border-l-2 border-(--color-border) pl-3">
+                        {citedEvidence.map((e) => (
+                          <li key={e.id} className="text-xs text-(--color-text-secondary)">
+                            <span className="rounded-full bg-slate-100 px-1.5 py-0.5 font-medium capitalize">{e.evidence_status}</span>{" "}
+                            {e.content}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </CardBody>
       </Card>
@@ -147,15 +170,6 @@ export default async function ReportPage({ params }: ReportPageProps) {
         initialActive={share?.is_active ?? false}
         appUrl={process.env.NEXT_PUBLIC_APP_URL ?? ""}
       />
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Want help putting these recommendations into action?</CardTitle>
-        </CardHeader>
-        <CardBody>
-          <LeadCaptureForm auditId={auditId} />
-        </CardBody>
-      </Card>
     </div>
   );
 }

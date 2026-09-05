@@ -37,4 +37,55 @@ describe("rankByPriority", () => {
     rankByPriority(items);
     expect(items).toEqual(copy);
   });
+
+  // Tie-breaking: Array.prototype.sort has been spec-guaranteed stable since
+  // ES2019, so items with equal priority_score must keep their relative
+  // input order rather than being reshuffled arbitrarily. This matters for
+  // the report and 30-day plan, which would otherwise show a different
+  // "Fix First" ordering on every render for tied items.
+  it("breaks ties by preserving original input order (stable sort)", () => {
+    const items = [
+      { id: "first", priority_score: 5 },
+      { id: "second", priority_score: 5 },
+      { id: "third", priority_score: 5 },
+    ];
+    const ranked = rankByPriority(items);
+    expect(ranked.map((i) => i.id)).toEqual(["first", "second", "third"]);
+  });
+
+  it("preserves original order among ties even when interleaved with distinct scores", () => {
+    const items = [
+      { id: "tie-a", priority_score: 5 },
+      { id: "high", priority_score: 9 },
+      { id: "tie-b", priority_score: 5 },
+      { id: "low", priority_score: 1 },
+      { id: "tie-c", priority_score: 5 },
+    ];
+    const ranked = rankByPriority(items);
+    expect(ranked.map((i) => i.id)).toEqual(["high", "tie-a", "tie-b", "tie-c", "low"]);
+  });
+
+  it("treats multiple null/missing scores as tied at 0 and preserves their relative order", () => {
+    const items = [
+      { id: "a", priority_score: null },
+      { id: "b", priority_score: 2 },
+      { id: "c", priority_score: undefined },
+    ];
+    const ranked = rankByPriority(items);
+    expect(ranked.map((i) => i.id)).toEqual(["b", "a", "c"]);
+  });
+});
+
+describe("computePriorityScore tie-breaking inputs", () => {
+  it("produces identical scores for identical impact/difficulty/severity inputs (deterministic, not random)", () => {
+    const a = computePriorityScore({ impact: "high", difficulty: "medium", severity: "medium" });
+    const b = computePriorityScore({ impact: "high", difficulty: "medium", severity: "medium" });
+    expect(a).toBe(b);
+  });
+
+  it("critical severity is clamped to the same weight as high (severity scale is only low/medium/high/critical capped at 3)", () => {
+    const high = computePriorityScore({ impact: "medium", difficulty: "medium", severity: "high" });
+    const critical = computePriorityScore({ impact: "medium", difficulty: "medium", severity: "critical" });
+    expect(critical).toBe(high);
+  });
 });

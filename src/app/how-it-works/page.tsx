@@ -6,7 +6,7 @@ export const metadata = { title: "How it works" };
 const STEPS = [
   {
     title: "Tell us about your business",
-    desc: "A short, structured onboarding — your business, audience, goals, and marketing today. Optionally add your website, social profiles, competitors, and brand assets for a Deep Audit.",
+    desc: "A short, structured onboarding — your business, audience, goals, and marketing today. Optionally add your website, social profiles, competitors, and brand assets — a Deep Audit will actually fetch and analyze the website/competitor sites and brand assets you provide.",
   },
   {
     title: "We analyze what's actually there",
@@ -60,9 +60,11 @@ export default function HowItWorksPage() {
         <div className="mt-12 rounded-xl border border-(--color-border) bg-white p-6">
           <h2 className="font-semibold text-(--color-text)">Quick vs. Deep Audit</h2>
           <p className="mt-2 text-sm text-(--color-text-secondary)">
-            A Quick Audit takes a few minutes and is based on the information you provide. A Deep Audit adds your
-            website, public social evidence, competitors, and brand assets for a fuller picture — how deep it can go
-            depends on how much of that is actually accessible.
+            A Quick Audit takes a few minutes and is based entirely on the information you provide about your
+            business, audience, and marketing. A Deep Audit adds a real, direct look at your website, any competitor
+            sites you list, and any brand assets you upload — fetched and analyzed, not assumed. Neither audit type
+            connects to social media platforms; social profiles are recorded as context, and the report says so
+            plainly rather than guessing at content or engagement.
           </p>
         </div>
 

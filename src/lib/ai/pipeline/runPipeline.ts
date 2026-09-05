@@ -2,6 +2,9 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { gatherAuditContext, buildEvidenceRows } from "./context";
+import { labelEvidenceRows, resolveEvidenceRefs } from "./evidenceLinking";
+import { analyzeAuditAssets } from "./assetPipeline";
+import { gatherCompetitorEvidence } from "./competitorPipeline";
 import { runNormalizeStage } from "./stage1-normalize";
 import { runDimensionAnalysisStage } from "./stage3-dimensions";
 import { runFindingsStage } from "./stage4-findings";
@@ -33,13 +36,36 @@ export async function runAuditPipeline(auditId: string): Promise<void> {
     const ctx = await gatherAuditContext(auditId);
     const normalized = await runNormalizeStage(ctx);
 
-    const evidenceRows = buildEvidenceRows(ctx);
+    // Real per-asset vision/document analysis (hardening pass Known Issue
+    // #1) — a genuine OpenAI call per uploaded asset, run before Stage 3 so
+    // the dimension-scoring model sees actual analysis rather than a bare
+    // file-name list. Best-effort: a failure on one asset yields honest
+    // "unavailable" evidence for that asset alone (see assetPipeline.ts).
+    const assetEvidenceRows = await analyzeAuditAssets(ctx.assets);
+    const assetAnalysisByFileName = new Map(assetEvidenceRows.map((r) => [r.source_reference ?? "", r.content ?? ""]));
+
+    // Real competitor evidence (fetches each competitor's site for Deep
+    // audits; records user-provided name/notes only for Quick — see
+    // competitorPipeline.ts for the Known Issue #6 rationale).
+    const competitorEvidenceRows = await gatherCompetitorEvidence(ctx.competitors, ctx.audit.audit_type);
+    const competitorEvidenceLines = competitorEvidenceRows.map((r) => r.content ?? "").filter(Boolean);
+
+    const evidenceRows = [...buildEvidenceRows(ctx), ...assetEvidenceRows, ...competitorEvidenceRows];
+    let insertedEvidence: { id: string; dimension: string; source_type: string; evidence_status: string; content: string | null }[] = [];
     if (evidenceRows.length > 0) {
-      await supabase.from("audit_evidence").insert(evidenceRows.map((r) => ({ ...r, audit_id: auditId })));
+      const { data: evidenceData } = await supabase
+        .from("audit_evidence")
+        .insert(evidenceRows.map((r) => ({ ...r, audit_id: auditId })))
+        .select("id, dimension, source_type, evidence_status, content");
+      insertedEvidence = evidenceData ?? [];
     }
+    // Labeled ("E1", "E2", ...) so Stage 4 can cite specific evidence rows
+    // by a short, unambiguous handle instead of needing real UUIDs in the
+    // prompt (hardening pass Known Issue #2 — evidence traceability).
+    const labeledEvidence = labelEvidenceRows(insertedEvidence);
 
     // --- Stage 3: Dimension analysis ---
-    const dimensionAnalyses = await runDimensionAnalysisStage(ctx, normalized);
+    const dimensionAnalyses = await runDimensionAnalysisStage(ctx, normalized, assetAnalysisByFileName, competitorEvidenceLines);
 
     const dimensionScores: Partial<Record<DimensionKey, number | null>> = {};
     const dimensionConfidences: ConfidenceLevel[] = [];
@@ -65,7 +91,7 @@ export async function runAuditPipeline(auditId: string): Promise<void> {
     await supabase.from("audit_dimensions").upsert(dimensionRows, { onConflict: "audit_id,dimension_key" });
 
     // --- Stage 4: Findings ---
-    const findings = await runFindingsStage(dimensionAnalyses);
+    const findings = await runFindingsStage(dimensionAnalyses, labeledEvidence);
     const findingIds = findings.map(() => randomUUID());
     const findingRows = findings.map((f, i) => ({
       id: findingIds[i],
@@ -79,7 +105,9 @@ export async function runAuditPipeline(auditId: string): Promise<void> {
       difficulty: f.difficulty,
       priority_score: computePriorityScore({ impact: f.impact, difficulty: f.difficulty, severity: f.severity }),
       confidence: f.confidence,
-      evidence_ids: [] as string[],
+      // Only labels that literally exist in the index we gave the model
+      // are ever persisted — see resolveEvidenceRefs.
+      evidence_ids: resolveEvidenceRefs(labeledEvidence, f.evidenceRefs),
     }));
     if (findingRows.length > 0) {
       await supabase.from("audit_findings").insert(findingRows);

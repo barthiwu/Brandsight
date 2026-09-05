@@ -4,8 +4,10 @@ import { OnboardingWizard } from "@/components/audit/OnboardingWizard";
 import { ProcessingView } from "@/components/audit/ProcessingView";
 import { FailedView } from "@/components/audit/FailedView";
 import { AuditOverview } from "@/components/audit/AuditOverview";
+import { DeleteAuditButton } from "@/components/audit/DeleteAuditButton";
 import { Alert } from "@/components/ui/Alert";
 import { AUDIT_QUESTIONS } from "@/lib/questions/config";
+import { deleteAuditAction } from "@/lib/actions/audits";
 
 export const dynamic = "force-dynamic";
 
@@ -77,7 +79,12 @@ export default async function AuditPage({ params }: AuditPageProps) {
   }
 
   if (audit.status === "cancelled") {
-    return <Alert tone="info">This audit was cancelled.</Alert>;
+    return (
+      <div className="flex flex-col items-start gap-4">
+        <Alert tone="info">This audit was cancelled.</Alert>
+        <DeleteAuditButton auditId={auditId} deleteAction={deleteAuditAction} />
+      </div>
+    );
   }
 
   return <AuditOverview auditId={auditId} />;

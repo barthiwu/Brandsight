@@ -120,7 +120,7 @@ describe("createAuditSchema", () => {
 
 describe("leadCaptureSchema", () => {
   const base = {
-    audit_id: VALID_UUID,
+    share_token: "aB3dEf6hIj9kLm2nOp5qRs8t",
     name: "Jane Doe",
     email: "jane@example.com",
     consent_marketing: true,
@@ -129,6 +129,15 @@ describe("leadCaptureSchema", () => {
   it("accepts a valid lead with explicit consent", () => {
     expect(leadCaptureSchema.safeParse(base).success).toBe(true);
     expect(leadCaptureSchema.safeParse({ ...base, consent_marketing: false }).success).toBe(true);
+  });
+
+  it("rejects a missing or too-short share token", () => {
+    // Format alone can't distinguish a real token from a lookalike string —
+    // that's enforced server-side by resolving it against the audit_shares
+    // table (see submitLeadAction) and rejecting anything that isn't an
+    // active, non-expired share. This schema only sanity-checks length.
+    expect(leadCaptureSchema.safeParse({ ...base, share_token: "" }).success).toBe(false);
+    expect(leadCaptureSchema.safeParse({ ...base, share_token: "short" }).success).toBe(false);
   });
 
   it("rejects a missing/invalid email", () => {

@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { SettingsForm } from "./SettingsForm";
+import { DeleteAccountForm } from "./DeleteAccountForm";
 
 export const metadata = { title: "Settings" };
 export const dynamic = "force-dynamic";
@@ -21,6 +22,15 @@ export default async function SettingsPage() {
         </CardHeader>
         <CardBody>
           <SettingsForm email={user?.email ?? ""} fullName={profile?.full_name ?? ""} />
+        </CardBody>
+      </Card>
+
+      <Card className="max-w-lg border-red-200">
+        <CardHeader>
+          <CardTitle>Delete account</CardTitle>
+        </CardHeader>
+        <CardBody>
+          <DeleteAccountForm />
         </CardBody>
       </Card>
     </div>

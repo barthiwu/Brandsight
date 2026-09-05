@@ -39,13 +39,25 @@ export function isPrivateOrReservedIp(ip: string): boolean {
   }
   if (version === 6) {
     const lower = ip.toLowerCase();
+
+    // IPv4-mapped (::ffff:a.b.c.d): unwrap and re-check the embedded IPv4
+    // address against the same CIDR list, rather than either trusting it
+    // outright or over-blocking every mapped address regardless of what it
+    // actually points to (a previous version of this check did the
+    // latter — it happened to fail safe, but for the wrong reason).
+    const mappedMatch = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    if (mappedMatch) {
+      return net.isIP(mappedMatch[1]) === 4 ? isPrivateOrReservedIp(mappedMatch[1]) : true;
+    }
+
     return (
       lower === "::1" ||
       lower === "::" ||
       lower.startsWith("fe80:") || // link-local
       lower.startsWith("fc") ||
       lower.startsWith("fd") || // unique local
-      lower.startsWith("::ffff:") // IPv4-mapped — validate the embedded v4 address too
+      lower.startsWith("64:ff9b::") || // NAT64 well-known prefix — can embed a private IPv4
+      lower.startsWith("2002:") // 6to4 — embeds an IPv4 address we can't easily unwrap here; fail closed
     );
   }
   return true; // unrecognized — fail closed

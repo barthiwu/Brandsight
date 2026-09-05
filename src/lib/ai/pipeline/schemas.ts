@@ -46,8 +46,34 @@ export const DimensionAnalysisSchema = z.object({
 });
 export type DimensionAnalysis = z.infer<typeof DimensionAnalysisSchema>;
 
+// `.length(8)` alone only guarantees eight ITEMS — it does not stop the
+// model from returning e.g. "positioning" twice and omitting "content"
+// while still totaling 8. The hardening pass requires exactly the 8 known
+// dimension keys, each exactly once, no unknowns and no duplicates — so
+// this adds an explicit uniqueness + completeness check on top of the
+// per-item enum validation DIMENSION_KEY_ENUM already provides.
 export const DimensionAnalysisBatchSchema = z.object({
   dimensions: z.array(DimensionAnalysisSchema).length(8),
+}).superRefine((batch, ctx) => {
+  const keys = batch.dimensions.map((d) => d.dimensionKey);
+  const uniqueKeys = new Set(keys);
+
+  if (uniqueKeys.size !== keys.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `Duplicate dimension keys in AI output: expected each of the 8 dimensions exactly once, got [${keys.join(", ")}].`,
+      path: ["dimensions"],
+    });
+  }
+
+  const missing = DIMENSION_KEY_ENUM.options.filter((key) => !uniqueKeys.has(key));
+  if (missing.length > 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `Missing required dimension(s) in AI output: ${missing.join(", ")}.`,
+      path: ["dimensions"],
+    });
+  }
 });
 
 // --- Stage 4: Findings -----------------------------------------------------
@@ -60,6 +86,15 @@ export const FindingItemSchema = z.object({
   impact: IMPACT_ENUM.nullable(),
   difficulty: DIFFICULTY_ENUM.nullable(),
   confidence: CONFIDENCE_ENUM,
+  /**
+   * Labels (e.g. "E3") of evidence-index entries that directly support
+   * this finding, from the evidence list given in the Stage 4 prompt.
+   * Resolved back to real `audit_evidence.id` values by
+   * `resolveEvidenceRefs` — never trusted or stored verbatim, since the
+   * model could hallucinate a label. Empty when no single evidence item
+   * supports the finding (e.g. it synthesizes several).
+   */
+  evidenceRefs: z.array(z.string()).max(15),
 });
 export type FindingItem = z.infer<typeof FindingItemSchema>;
 

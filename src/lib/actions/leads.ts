@@ -10,15 +10,23 @@ export interface LeadActionState {
 }
 
 /**
- * Lead capture (spec §68-69). Always runs server-side with the admin
- * client and derives `owner_id` from the audit record itself — never
- * from client input — so this works identically whether the visitor is
- * the authenticated audit owner or an anonymous visitor on a public
- * share link, and a client can never forge whose lead inbox it lands in.
+ * Lead capture (spec §68-69, hardening pass §5). The ONLY input that
+ * identifies which audit a lead is for is the public share token — never
+ * a client-supplied audit_id. The full server-side resolution chain is:
+ *
+ *   share_token -> active, non-expired audit_shares row -> audit
+ *     -> audit must be completed -> owner_id read from that row
+ *
+ * A client can never name an arbitrary audit UUID directly, and owner_id
+ * is never accepted from the client at any point. This intentionally
+ * means lead capture only works from the public shared report — an
+ * audit's own owner isn't a "lead" for their own business, so this form
+ * does not appear on the authenticated report page (see
+ * src/app/(app)/audits/[auditId]/report/page.tsx).
  */
 export async function submitLeadAction(_prev: LeadActionState, formData: FormData): Promise<LeadActionState> {
   const parsed = leadCaptureSchema.safeParse({
-    audit_id: formData.get("audit_id"),
+    share_token: formData.get("share_token"),
     name: formData.get("name"),
     email: formData.get("email"),
     phone: formData.get("phone") ?? "",
@@ -32,13 +40,29 @@ export async function submitLeadAction(_prev: LeadActionState, formData: FormDat
   if (!rl.allowed) return { error: "Too many submissions. Please try again later." };
 
   const admin = createAdminClient();
-  const { data: audit } = await admin.from("audits").select("id, owner_id, status").eq("id", parsed.data.audit_id).maybeSingle();
+
+  const { data: share } = await admin
+    .from("audit_shares")
+    .select("audit_id, is_active, expires_at")
+    .eq("share_token", parsed.data.share_token)
+    .maybeSingle();
+
+  if (!share || !share.is_active || (share.expires_at && new Date(share.expires_at) < new Date())) {
+    return { error: "This shared report is no longer available." };
+  }
+
+  const { data: audit } = await admin
+    .from("audits")
+    .select("id, owner_id, status")
+    .eq("id", share.audit_id)
+    .maybeSingle();
+
   if (!audit || audit.status !== "completed") {
     return { error: "This audit is not available for lead capture." };
   }
 
   const { error } = await admin.from("leads").insert({
-    audit_id: parsed.data.audit_id,
+    audit_id: audit.id,
     owner_id: audit.owner_id,
     name: parsed.data.name,
     email: parsed.data.email,

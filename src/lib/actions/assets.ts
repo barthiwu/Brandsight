@@ -41,8 +41,16 @@ export async function requestAssetUploadAction(
   const rl = await checkRateLimit(`asset-upload:${user.id}`, RATE_LIMITS.assetUpload);
   if (!rl.allowed) return { ok: false, error: "Too many uploads. Please try again later." };
 
-  // Ownership check happens implicitly via RLS on the insert below (the
-  // audit must belong to this user for the row to be accepted).
+  // Ownership is enforced by RLS on the insert below (the audit must
+  // belong to this user for the row to be accepted), but audit *type* and
+  // *status* are not something RLS encodes, so check them explicitly here
+  // rather than trusting the client to only show the upload UI for deep,
+  // draft audits (hardening pass Known Issue #6 — the Quick/Deep
+  // distinction must be enforced server-side, not just hidden in the UI).
+  const { data: audit } = await supabase.from("audits").select("audit_type, status, owner_id").eq("id", auditId).maybeSingle();
+  if (!audit || audit.owner_id !== user.id) return { ok: false, error: "Audit not found." };
+  if (audit.audit_type !== "deep") return { ok: false, error: "Brand assets can only be uploaded for deep audits." };
+  if (audit.status !== "draft") return { ok: false, error: "This audit is no longer accepting uploads." };
   const safeName = parsed.data.file_name.replace(/[^a-zA-Z0-9_.-]/g, "_").slice(0, 120);
   const path = `${user.id}/${auditId}/${randomUUID()}-${safeName}`;
 

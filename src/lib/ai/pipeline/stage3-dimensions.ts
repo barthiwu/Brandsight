@@ -16,7 +16,9 @@ import type { AuditContext } from "./context";
  */
 export async function runDimensionAnalysisStage(
   ctx: AuditContext,
-  normalized: NormalizedContext
+  normalized: NormalizedContext,
+  assetAnalysisByFileName?: Map<string, string>,
+  competitorEvidenceLines?: string[]
 ): Promise<DimensionAnalysis[]> {
   const rubric = ALL_DIMENSION_KEYS.map((key) => {
     const criteria = DIMENSION_SUBCRITERIA[key].map((c) => `    - "${c.key}" (${Math.round(c.weight * 100)}%): ${c.label}`).join("\n");
@@ -31,7 +33,10 @@ Dimensions and their subcriteria (weight shown for context only — you don't ne
 
 ${rubric}`;
 
-  const input = wrapExternalData("audit_context", renderContextForPrompt(ctx, normalized));
+  const input = wrapExternalData(
+    "audit_context",
+    renderContextForPrompt(ctx, normalized, assetAnalysisByFileName, competitorEvidenceLines)
+  );
 
   const result = await callStructuredStage({
     stage: "dimension_analysis",

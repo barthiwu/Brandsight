@@ -149,7 +149,7 @@ export default async function SharedAuditPage({ params }: SharedAuditPageProps) 
             <CardTitle>Want help putting these recommendations into action?</CardTitle>
           </CardHeader>
           <CardBody>
-            <LeadCaptureForm auditId={report.audit.id} />
+            <LeadCaptureForm shareToken={shareToken} />
           </CardBody>
         </Card>
 

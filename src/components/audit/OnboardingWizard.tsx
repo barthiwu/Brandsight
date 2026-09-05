@@ -137,8 +137,10 @@ export function OnboardingWizard({
             {auditType === "deep" && (
               <>
                 <Alert tone="info">
-                  Deep audits analyze whatever website and public social evidence is accessible. If a profile can&apos;t
-                  be assessed, the report will say so rather than guessing.
+                  Deep audits fetch and analyze your website directly, and do the same for any competitor sites you
+                  list below. Brand assets you upload here get real visual/document analysis, not just a mention in
+                  the report. We do not connect to social media platforms in V1 — social profiles are recorded as
+                  context only, and the report will say so plainly rather than guessing at engagement or content.
                 </Alert>
                 <AssetUploadField auditId={auditId} />
               </>

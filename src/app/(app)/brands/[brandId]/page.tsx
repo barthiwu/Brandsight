@@ -10,6 +10,7 @@ import { AudienceForm } from "@/components/brand/AudienceForm";
 import { MarketingForm } from "@/components/brand/MarketingForm";
 import { CompetitorsSection } from "@/components/brand/CompetitorsSection";
 import { SocialProfilesSection } from "@/components/brand/SocialProfilesSection";
+import { DeleteBrandButton } from "@/components/brand/DeleteBrandButton";
 import { getScoreBand } from "@/lib/scoring/dimensions";
 import {
   updateBrandAction,
@@ -19,6 +20,7 @@ import {
   removeCompetitorAction,
   addSocialProfileAction,
   removeSocialProfileAction,
+  deleteBrandAction,
 } from "@/lib/actions/brands";
 
 export const dynamic = "force-dynamic";
@@ -151,6 +153,19 @@ export default async function BrandDetailPage({ params }: BrandPageProps) {
           ) : (
             <EmptyState title="No audits for this brand yet" />
           )}
+        </CardBody>
+      </Card>
+
+      <Card className="border-red-200">
+        <CardHeader>
+          <CardTitle>Danger zone</CardTitle>
+        </CardHeader>
+        <CardBody>
+          <p className="mb-3 text-sm text-(--color-text-secondary)">
+            Deleting {brand?.name ?? "this brand"} permanently removes it, every audit run against it, and any
+            uploaded brand assets. This cannot be undone.
+          </p>
+          <DeleteBrandButton brandId={brandId} brandName={brand?.name ?? "this brand"} deleteAction={deleteBrandAction} />
         </CardBody>
       </Card>
     </div>

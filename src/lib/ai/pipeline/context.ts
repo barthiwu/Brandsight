@@ -164,11 +164,18 @@ export function buildEvidenceRows(ctx: AuditContext): {
 
       add("digital", "website", "observed", summary, ctx.websiteSource.url);
       add("messaging", "website", "observed", ctx.websiteSource.headings.join(" | "), ctx.websiteSource.url);
+      // Always "inferred", never "observed": BrandSight does not screenshot
+      // or otherwise visually render the website, so any statement about
+      // its visual quality is inference from structure/copy alone — this
+      // is independent of whether the user separately uploaded brand
+      // assets (uploaded assets get their own, real vision analysis; see
+      // pipeline/assetPipeline.ts). Evidence status must reflect what was
+      // actually observed, not what else exists elsewhere in the audit.
       add(
         "visual",
         "website",
-        ctx.assets.length > 0 ? "observed" : "inferred",
-        "Website exists; layout/visual quality inferred from structure and copy only (no screenshot analysis in V1 without uploaded brand assets).",
+        "inferred",
+        "The website's visual quality was not directly observed (no screenshot/rendering analysis) — inferred only from its text structure, headings, and copy.",
         ctx.websiteSource.url
       );
     } else {
@@ -197,33 +204,49 @@ export function buildEvidenceRows(ctx: AuditContext): {
     add("social", "system", "unavailable", "No social profiles provided.");
   }
 
-  // Competitors.
-  if (ctx.competitors.length > 0) {
-    add(
-      "competition",
-      "competitor",
-      "provided",
-      ctx.competitors.map((c) => `${c.name}${c.url ? ` (${c.url})` : ""}${c.notes ? ` — ${c.notes}` : ""}`).join("\n")
-    );
-  } else {
+  // NOTE: competitor evidence is intentionally NOT built here. Unlike the
+  // rest of this function, a Deep audit's competitor evidence requires an
+  // actual network fetch of each competitor's site, which can't happen in
+  // this synchronous/deterministic builder. See
+  // pipeline/competitorPipeline.ts's gatherCompetitorEvidence(), called
+  // separately from runPipeline.ts, which records the user-provided
+  // name/notes for every audit type and additionally fetches the site for
+  // Deep audits — merged into this same evidence-row shape.
+  if (ctx.competitors.length === 0) {
     add("competition", "system", "unavailable", "No competitors provided.");
   }
 
-  // Uploaded assets contribute to visual evidence.
-  if (ctx.assets.length > 0) {
-    add(
-      "visual",
-      "uploaded_asset",
-      "observed",
-      `${ctx.assets.length} brand asset(s) uploaded for visual review: ${ctx.assets.map((a) => a.file_name).join(", ")}`
-    );
-  }
+  // NOTE: uploaded-asset evidence is intentionally NOT built here. Unlike
+  // every other row in this function, asset evidence requires an actual
+  // network call (downloading the file, sending it to OpenAI vision) and
+  // therefore can't be produced by this synchronous/deterministic builder.
+  // See pipeline/assetPipeline.ts's analyzeAuditAssets(), called
+  // separately from runPipeline.ts, which performs the real analysis and
+  // returns evidence rows of this same shape to be merged in.
 
   return rows;
 }
 
 /** Renders the gathered context into the text block shared across Stage 3/4/5/7/8 prompts. */
-export function renderContextForPrompt(ctx: AuditContext, normalized?: { businessSummary: string; audienceSummary: string; positioningSummary: string; objectivesSummary: string; marketingSummary: string; competitiveContext: string }): string {
+export function renderContextForPrompt(
+  ctx: AuditContext,
+  normalized?: { businessSummary: string; audienceSummary: string; positioningSummary: string; objectivesSummary: string; marketingSummary: string; competitiveContext: string },
+  /**
+   * Real per-asset vision/document analysis text (from
+   * pipeline/assetPipeline.ts's analyzeAuditAssets), keyed by file name.
+   * Optional because this function runs before that analysis exists in
+   * some call sites; when omitted, assets are described by name only.
+   */
+  assetAnalysisByFileName?: Map<string, string>,
+  /**
+   * Real competitor evidence text (from
+   * pipeline/competitorPipeline.ts's gatherCompetitorEvidence) — includes
+   * fetched-site summaries for Deep audits and honest "unavailable" notes
+   * for a failed fetch. Optional for the same reason as
+   * assetAnalysisByFileName above.
+   */
+  competitorEvidenceLines?: string[]
+): string {
   const lines: string[] = [];
   lines.push(`Business: ${ctx.brand.name} (${ctx.brand.industry ?? "industry not specified"}, ${ctx.brand.country ?? "country not specified"})`);
   lines.push(`Audit type: ${ctx.audit.audit_type}`);
@@ -260,14 +283,31 @@ export function renderContextForPrompt(ctx: AuditContext, normalized?: { busines
   );
 
   lines.push(`\n--- Competitors ---`);
-  lines.push(
-    ctx.competitors.length > 0
-      ? ctx.competitors.map((c) => `${c.name}${c.url ? ` — ${c.url}` : ""}${c.notes ? ` (${c.notes})` : ""}`).join("\n")
-      : "None provided."
-  );
+  if (ctx.competitors.length === 0) {
+    lines.push("None provided.");
+  } else if (competitorEvidenceLines && competitorEvidenceLines.length > 0) {
+    lines.push(competitorEvidenceLines.join("\n\n"));
+  } else {
+    // Real evidence hasn't been gathered for this call site — list only
+    // what the business owner typed, without implying any site was
+    // visited.
+    lines.push(ctx.competitors.map((c) => `${c.name}${c.url ? ` — ${c.url}` : ""}${c.notes ? ` (${c.notes})` : ""} (not fetched)`).join("\n"));
+  }
 
   lines.push(`\n--- Uploaded brand assets ---`);
-  lines.push(ctx.assets.length > 0 ? ctx.assets.map((a) => a.file_name).join(", ") : "None uploaded.");
+  if (ctx.assets.length === 0) {
+    lines.push("None uploaded.");
+  } else if (assetAnalysisByFileName) {
+    lines.push(
+      ctx.assets
+        .map((a) => assetAnalysisByFileName.get(a.file_name) ?? `"${a.file_name}": analysis unavailable.`)
+        .join("\n\n")
+    );
+  } else {
+    // Analysis hasn't been run for this call site — name the files
+    // honestly without implying they were inspected.
+    lines.push(`${ctx.assets.map((a) => a.file_name).join(", ")} (not yet analyzed)`);
+  }
 
   return lines.join("\n");
 }
