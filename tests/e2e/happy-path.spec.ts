@@ -164,6 +164,16 @@ test("a new user can sign up, create a brand, and complete a Quick Audit", async
     // couple of minutes" — ProcessingView.tsx), just over this assertion's
     // old timeout. Widened with headroom rather than trimmed to the exact
     // observed duration, since pipeline timing will vary run to run.
-    await expect(page.getByText(/brandsight score|overall score/i)).toBeVisible({ timeout: 180_000 });
+    //
+    // Not the /brandsight score|overall score/i regex this used to be: a
+    // live Deep Audit run's AI-written summary paragraph happened to
+    // contain the phrase "overall score" in its own prose, which that
+    // regex also matched, tripping Playwright's strict mode against the
+    // report's actual score label (src/components/audit/ScoreDisplay.tsx)
+    // sitting right next to it. That component renders the exact literal
+    // text "BrandSight Score" unconditionally, independent of any
+    // AI-authored wording, so anchor on that instead of a regex that can
+    // collide with whatever the model happens to write.
+    await expect(page.getByText("BrandSight Score", { exact: true })).toBeVisible({ timeout: 180_000 });
   });
 });
