@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAuditSchema, autosaveBatchSchema } from "@/lib/validation/schemas";
 import { checkRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { validateAuditReadiness } from "@/lib/questions/validate";
+import { buildAnswersWithBrandPrefill } from "@/lib/questions/prefill";
 
 export interface ActionState {
   error?: string;
@@ -86,7 +87,7 @@ export async function submitAuditForProcessingAction(auditId: string): Promise<A
 
   const { data: audit } = await supabase
     .from("audits")
-    .select("id, owner_id, audit_type, status")
+    .select("id, owner_id, audit_type, status, brand_id")
     .eq("id", auditId)
     .maybeSingle();
 
@@ -97,15 +98,25 @@ export async function submitAuditForProcessingAction(auditId: string): Promise<A
     return { error: "This audit has already been submitted." };
   }
 
-  const { data: responseRows } = await supabase
-    .from("audit_responses")
-    .select("question_key, answer")
-    .eq("audit_id", auditId);
+  const [{ data: responseRows }, { data: brand }] = await Promise.all([
+    supabase.from("audit_responses").select("question_key, answer").eq("audit_id", auditId),
+    supabase.from("brands").select("*").eq("id", audit.brand_id).maybeSingle(),
+  ]);
 
-  const answers: Record<string, unknown> = {};
+  const savedAnswers: Record<string, unknown> = {};
   for (const row of responseRows ?? []) {
-    answers[row.question_key] = row.answer;
+    savedAnswers[row.question_key] = row.answer;
   }
+
+  // Must mirror the wizard's own prefill merge (see
+  // buildAnswersWithBrandPrefill's comment) — otherwise a business-section
+  // field the user accepted as prefilled and never re-typed (nothing calls
+  // the autosave action for a field that was never touched) gets rejected
+  // here as "missing" even though the wizard already treated the section
+  // as complete with that same value. Found live: this used to validate
+  // against `audit_responses` alone and rejected every business-section
+  // field, Business name included, on a real Quick Audit submission.
+  const answers = buildAnswersWithBrandPrefill(brand, savedAnswers);
 
   const issues = validateAuditReadiness(audit.audit_type, answers);
   if (issues.length > 0) {

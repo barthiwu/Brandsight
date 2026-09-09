@@ -24,7 +24,7 @@ export async function signUpAction(_prev: AuthActionState, formData: FormData): 
   if (!rl.allowed) return { error: "Too many attempts. Please try again later." };
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signUp({
+  const { data, error } = await supabase.auth.signUp({
     email: parsed.data.email,
     password: parsed.data.password,
     options: {
@@ -34,6 +34,19 @@ export async function signUpAction(_prev: AuthActionState, formData: FormData): 
   });
 
   if (error) return { error: error.message };
+
+  // Supabase only withholds a session when email confirmation is required
+  // (Auth > Sign In / Providers > Email > "Confirm email" is ON). When it's
+  // off — as on a dev/test project, or if a project disables it in
+  // production — signUp() auto-confirms and returns a live session
+  // immediately, and the user is already signed in at this point. Showing a
+  // "check your email" message in that case would strand them on a page
+  // that never resolves, since no confirmation email is coming (or if one
+  // is, they don't need it). Redirect straight in whenever a session came
+  // back; only fall back to the "check your email" copy when it didn't.
+  if (data.session) {
+    redirect("/dashboard");
+  }
 
   return { success: "Check your email to confirm your account, then sign in." };
 }

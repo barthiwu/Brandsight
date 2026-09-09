@@ -51,7 +51,18 @@ export function OnboardingWizard({
   const [answers, setAnswers] = useState<Record<string, unknown>>(initialAnswers);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [, startTransition] = useTransition();
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Keyed by question_key, NOT a single shared timer. A single shared
+  // debounceRef (the original implementation) meant editing ANY field
+  // cleared and replaced the pending save for whichever field was
+  // previously scheduled — so filling several fields within the same 600ms
+  // window (completely normal for anyone typing at a reasonable pace, and
+  // near-guaranteed for the E2E test's scripted fills) silently dropped
+  // every field's save except whichever one last happened to sit quiet for
+  // 600ms. Found live: a real Quick Audit submission was rejected as
+  // missing every required field, including ones definitely filled in,
+  // because almost none of them ever actually reached the database.
+  const pendingTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const pendingFlushersRef = useRef<Map<string, () => Promise<void>>>(new Map());
   const [submitState, submitAction, isSubmitting] = useActionState(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars -- useActionState requires the (prevState) signature even though this action ignores it
     async (_prev: ActionState) => submitAuditForProcessingAction(auditId),
@@ -62,17 +73,45 @@ export function OnboardingWizard({
   const questions = useMemo(() => questionsForSection(section), [section]);
 
   function scheduleSave(section: QuestionDefinition["section"], key: string, value: unknown) {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const timers = pendingTimersRef.current;
+    const existingTimer = timers.get(key);
+    if (existingTimer) clearTimeout(existingTimer);
     setSaveState("saving");
-    debounceRef.current = setTimeout(() => {
-      startTransition(async () => {
-        const result = await saveAuditResponsesAction({
-          audit_id: auditId,
-          responses: [{ section, question_key: key, answer: value }],
-        });
-        setSaveState(result.ok ? "saved" : "error");
+
+    const doSave = async () => {
+      timers.delete(key);
+      pendingFlushersRef.current.delete(key);
+      const result = await saveAuditResponsesAction({
+        audit_id: auditId,
+        responses: [{ section, question_key: key, answer: value }],
       });
-    }, 600);
+      setSaveState(result.ok ? "saved" : "error");
+    };
+
+    pendingFlushersRef.current.set(key, doSave);
+    timers.set(
+      key,
+      setTimeout(() => {
+        startTransition(() => {
+          doSave();
+        });
+      }, 600)
+    );
+  }
+
+  // Called before advancing/going back/submitting so a field edited just
+  // before that click doesn't lose its still-debouncing save to a
+  // navigation race — per-field debouncing alone fixes cross-field
+  // cancellation, but a save that simply hasn't fired yet by the time the
+  // user moves on is still a real gap without this.
+  async function flushPendingSaves() {
+    const timers = pendingTimersRef.current;
+    const flushers = pendingFlushersRef.current;
+    for (const timer of timers.values()) clearTimeout(timer);
+    timers.clear();
+    const pending = Array.from(flushers.values());
+    flushers.clear();
+    await Promise.all(pending.map((flush) => flush()));
   }
 
   function handleChange(question: QuestionDefinition, value: unknown) {
@@ -160,18 +199,48 @@ export function OnboardingWizard({
       {submitState.error && <Alert tone="error">{submitState.error}</Alert>}
 
       <div className="flex items-center justify-between border-t border-(--color-border) pt-5">
-        <Button type="button" variant="secondary" disabled={stepIndex === 0} onClick={() => setStepIndex((i) => i - 1)}>
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={stepIndex === 0}
+          onClick={async () => {
+            await flushPendingSaves();
+            setStepIndex((i) => i - 1);
+          }}
+        >
           Back
         </Button>
 
         {isLastStep ? (
-          <form action={submitAction}>
-            <Button type="submit" isLoading={isSubmitting} disabled={!allRequiredComplete}>
-              Submit for analysis
-            </Button>
-          </form>
+          <Button
+            type="button"
+            isLoading={isSubmitting}
+            disabled={!allRequiredComplete}
+            onClick={async () => {
+              // Flush before submitting: submitAuditForProcessingAction
+              // re-validates from the database, so a field edited just
+              // before this click must have actually reached it first —
+              // see flushPendingSaves' own comment for why this matters.
+              // submitAction (from useActionState) ignores its payload and
+              // just calls submitAuditForProcessingAction(auditId), so
+              // calling it directly here — instead of wiring it as a
+              // <form action={submitAction}> — is equivalent and lets this
+              // await the flush first.
+              await flushPendingSaves();
+              submitAction();
+            }}
+          >
+            Submit for analysis
+          </Button>
         ) : (
-          <Button type="button" onClick={() => setStepIndex((i) => i + 1)} disabled={requiredMissing && section !== "competitors" && section !== "digital"}>
+          <Button
+            type="button"
+            onClick={async () => {
+              await flushPendingSaves();
+              setStepIndex((i) => i + 1);
+            }}
+            disabled={requiredMissing && section !== "competitors" && section !== "digital"}
+          >
             Next
           </Button>
         )}

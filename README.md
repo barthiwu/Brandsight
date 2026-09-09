@@ -36,7 +36,7 @@ cp .env.example .env.local   # then fill in real values — see below
 You need:
 
 1. **A Supabase project.** Create one at [supabase.com](https://supabase.com), then copy its Project URL, publishable/anon key, and service_role key from Project Settings → API into `.env.local`.
-2. **An OpenAI API key** with access to the model set in `OPENAI_MODEL` (defaults to `gpt-5.5-mini` if unset).
+2. **An OpenAI API key** with access to the model set in `OPENAI_MODEL` (defaults to `gpt-5.6-luna` if unset).
 
 Then apply the database schema (see below) and run:
 

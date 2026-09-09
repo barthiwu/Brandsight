@@ -20,7 +20,13 @@ export function getConfiguredModel(): string {
   // the app. The exact best model changes over time — check
   // platform.openai.com/docs/models when deploying — so only the
   // fallback default lives here.
-  return process.env.OPENAI_MODEL || "gpt-5.5-mini";
+  //
+  // gpt-5.6-luna confirmed live (Sept 2026) against OpenAI's own model
+  // catalog and pricing pages as the current cost-efficient/mini tier
+  // model. The previous fallback, gpt-5.5-mini, no longer exists in the
+  // catalog and every live call to it 404s with "model_not_found" — found
+  // live during E2E testing (see HARDENING_REPORT.md).
+  return process.env.OPENAI_MODEL || "gpt-5.6-luna";
 }
 
 export class AiStageError extends Error {
@@ -93,7 +99,21 @@ export async function callStructuredStage<T>(params: {
     }
   }
 
-  throw new AiStageError(params.stage, `Stage "${params.stage}" failed after ${MAX_ATTEMPTS} attempts.`, lastError);
+  // Include the last underlying error's own message, not just the generic
+  // "failed after N attempts" — this string is what ends up stored verbatim
+  // in audits.processing_error (see runPipeline.ts's catch handler), and a
+  // generic message with no real detail meant a live pipeline failure could
+  // only be diagnosed by digging through server console logs after the
+  // fact. Found live: a normalize-stage failure surfaced only
+  // 'Stage "normalize" failed after 3 attempts.' in the database, with the
+  // actual cause visible only in stdout the investigating session didn't
+  // have access to.
+  const lastErrorMessage = lastError instanceof Error ? lastError.message : String(lastError);
+  throw new AiStageError(
+    params.stage,
+    `Stage "${params.stage}" failed after ${MAX_ATTEMPTS} attempts: ${lastErrorMessage}`,
+    lastError
+  );
 }
 
 function sleep(ms: number) {
