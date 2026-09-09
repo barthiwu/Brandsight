@@ -23,6 +23,18 @@ export const hasLiveSupabaseEnv = Boolean(
 
 export const runLiveTests = hasLiveSupabaseEnv && process.env.RUN_LIVE_INTEGRATION_TESTS === "1";
 
+// NOTE: found during the first actual live-testing pass (this codebase's
+// own final report was explicit that these suites had been written and
+// reviewed but never executed — this is exactly the kind of thing that
+// only surfaces once they finally run against a real project). Supabase's
+// current signup validation rejects addresses on RFC 2606 reserved/
+// documentation domains (example.com/.net/.org) outright with "Email
+// address ... is invalid" — so the original `@example.com` fixture domain
+// never actually worked against a live project. `.test` is also an RFC
+// 2606 reserved TLD but is not on Supabase's specific denylist (unlike
+// the "example" domains, which look like real spam-signup vectors from
+// a provider's point of view); using it here keeps these addresses
+// unambiguously fake without hitting that block.
 export function randomTestEmail(): string {
-  return `brandsight-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`;
+  return `brandsight-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@brandsight-livetest.test`;
 }
