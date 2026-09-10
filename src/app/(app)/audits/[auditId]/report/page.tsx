@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { FindingTypeBadge } from "@/components/ui/Badge";
 import { ScoreDisplay } from "@/components/audit/ScoreDisplay";
 import { ShareToggle } from "@/components/audit/ShareToggle";
+import { SelfAuditLeadCTA } from "@/components/audit/SelfAuditLeadCTA";
 import { ALL_DIMENSION_KEYS, DIMENSION_LABELS, getScoreBand } from "@/lib/scoring/dimensions";
 import { rankByPriority } from "@/lib/scoring/priority";
 
@@ -19,14 +20,21 @@ export default async function ReportPage({ params }: ReportPageProps) {
   const { auditId } = await params;
   const supabase = await createClient();
 
-  const [{ data: audit }, { data: dimensions }, { data: findings }, { data: recommendations }, { data: share }, { data: evidence }] = await Promise.all([
-    supabase.from("audits").select("*, brands(name, industry, website_url)").eq("id", auditId).maybeSingle(),
-    supabase.from("audit_dimensions").select("*").eq("audit_id", auditId),
-    supabase.from("audit_findings").select("*").eq("audit_id", auditId),
-    supabase.from("audit_recommendations").select("*").eq("audit_id", auditId),
-    supabase.from("audit_shares").select("*").eq("audit_id", auditId).maybeSingle(),
-    supabase.from("audit_evidence").select("*").eq("audit_id", auditId),
-  ]);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const [{ data: audit }, { data: dimensions }, { data: findings }, { data: recommendations }, { data: share }, { data: evidence }, { data: existingLead }, { data: profile }] =
+    await Promise.all([
+      supabase.from("audits").select("*, brands(name, industry, website_url)").eq("id", auditId).maybeSingle(),
+      supabase.from("audit_dimensions").select("*").eq("audit_id", auditId),
+      supabase.from("audit_findings").select("*").eq("audit_id", auditId),
+      supabase.from("audit_recommendations").select("*").eq("audit_id", auditId),
+      supabase.from("audit_shares").select("*").eq("audit_id", auditId).maybeSingle(),
+      supabase.from("audit_evidence").select("*").eq("audit_id", auditId),
+      supabase.from("leads").select("id").eq("audit_id", auditId).eq("source", "self_audit").maybeSingle(),
+      user ? supabase.from("profiles").select("full_name, email").eq("id", user.id).maybeSingle() : Promise.resolve({ data: null }),
+    ]);
 
   if (!audit || audit.status !== "completed") notFound();
 
@@ -153,6 +161,21 @@ export default async function ReportPage({ params }: ReportPageProps) {
           View the full 30-day action plan →
         </Link>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Want help putting these recommendations into action?</CardTitle>
+        </CardHeader>
+        <CardBody>
+          <SelfAuditLeadCTA
+            auditId={auditId}
+            defaultName={profile?.full_name ?? ""}
+            defaultEmail={profile?.email ?? user?.email ?? ""}
+            defaultBusinessName={brand?.name ?? ""}
+            alreadySubmitted={Boolean(existingLead)}
+          />
+        </CardBody>
+      </Card>
 
       <Card className="bg-(--color-bg)">
         <CardBody>

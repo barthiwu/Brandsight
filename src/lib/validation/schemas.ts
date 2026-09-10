@@ -128,6 +128,21 @@ export const leadCaptureSchema = z.object({
   }),
 });
 
+// Self-audit lead capture (BlitzSMA funnel): an authenticated user opting
+// in to be contacted about their OWN just-completed audit. The audit_id is
+// still resolved and ownership-checked server-side in the action itself —
+// this schema only validates shape, not authorization.
+export const selfAuditLeadCaptureSchema = z.object({
+  audit_id: z.string().uuid(),
+  name: z.string().trim().min(1, "Name is required").max(200),
+  email: z.string().trim().email("Enter a valid email").max(320),
+  phone: z.string().trim().max(40).optional().or(z.literal("")),
+  business_name: z.string().trim().max(200).optional().or(z.literal("")),
+  consent_marketing: z.boolean().refine((v) => v === true || v === false, {
+    message: "Consent must be explicit",
+  }),
+});
+
 // ---------------------------------------------------------------------------
 // Sharing
 // ---------------------------------------------------------------------------
