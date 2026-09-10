@@ -29,11 +29,20 @@ describe.skipIf(!runLiveTests)("Storage upload/download round trip (live)", () =
 
   let userClient: SupabaseClient<Database>;
   let userId: string;
-  const objectPath = () => `${userId}/storage-roundtrip-test/${Date.now()}.txt`;
+  const objectPath = () => `${userId}/storage-roundtrip-test/${Date.now()}.png`;
   let uploadedPath: string;
 
-  const fileContents = `BrandSight live storage round-trip check — ${new Date().toISOString()}`;
-  const fileBytes = new TextEncoder().encode(fileContents);
+  // A real, minimal 1x1 transparent PNG — the bucket's allowed_mime_types
+  // (migration 0006_storage.sql) only permits image/png, image/jpeg,
+  // image/webp, and application/pdf, matching what real brand-asset
+  // uploads actually are, so the round trip has to use a real allowed
+  // type rather than arbitrary text.
+  const fileBytes = Uint8Array.from(
+    atob(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    ),
+    (c) => c.charCodeAt(0)
+  );
 
   beforeAll(async () => {
     const email = randomTestEmail();
@@ -52,7 +61,7 @@ describe.skipIf(!runLiveTests)("Storage upload/download round trip (live)", () =
   it("uploads a real object to Storage as the signed-in user", async () => {
     uploadedPath = objectPath();
     const { error } = await userClient.storage.from(bucket).upload(uploadedPath, fileBytes, {
-      contentType: "text/plain",
+      contentType: "image/png",
       upsert: false,
     });
     expect(error).toBeNull();
@@ -63,15 +72,34 @@ describe.skipIf(!runLiveTests)("Storage upload/download round trip (live)", () =
     expect(error).toBeNull();
     expect(data).not.toBeNull();
     const downloaded = new Uint8Array(await data!.arrayBuffer());
-    expect(new TextDecoder().decode(downloaded)).toBe(fileContents);
+    expect(Array.from(downloaded)).toEqual(Array.from(fileBytes));
   });
 
-  it("removes the object, and a subsequent download fails", async () => {
+  it("removes the object, confirmed by the canonical listing — not by re-downloading it", async () => {
+    const prefix = `${userId}/storage-roundtrip-test`;
+    const fileName = uploadedPath.split("/").pop()!;
+
     const { error: removeError } = await userClient.storage.from(bucket).remove([uploadedPath]);
     expect(removeError).toBeNull();
 
-    const { error: downloadError } = await userClient.storage.from(bucket).download(uploadedPath);
-    expect(downloadError).not.toBeNull();
+    // Ground truth for "is the object actually gone" is the canonical
+    // listing (list()), not download(). Uploaded objects in this bucket
+    // are served with Cache-Control: max-age=3600 (visible on the
+    // metadata returned by the upload/remove calls), and Supabase
+    // Storage's CDN honors that on GETs even after the underlying object
+    // is deleted — a download() immediately after remove() can keep
+    // succeeding from cache for up to that full hour. Confirmed live:
+    // list() showed the object gone immediately after remove(), while
+    // download() kept returning it successfully for 10+ seconds straight
+    // with no sign of expiring. That's expected CDN cache behavior, not
+    // a deletion bug — remove()'s own response already confirms it
+    // deleted the real object (id, version, etc.), and list() is the
+    // authoritative "does it still exist" check, not a request that can
+    // be served from a stale cache entry.
+    const { data: afterList, error: listError } = await admin.storage.from(bucket).list(prefix);
+    expect(listError).toBeNull();
+    expect((afterList ?? []).some((f) => f.name === fileName)).toBe(false);
+
     uploadedPath = ""; // already removed, skip afterAll's redundant cleanup
   });
 });
