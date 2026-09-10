@@ -9,7 +9,7 @@ export function FailedView({ auditId, errorMessage }: { auditId: string; errorMe
   const [isPending, startTransition] = useTransition();
 
   return (
-    <div className="flex flex-col gap-4 rounded-xl border border-(--color-border) bg-white p-8">
+    <div className="flex flex-col gap-4 rounded-xl border border-(--color-border) bg-(--color-surface) p-8">
       <Alert tone="error">
         We couldn&apos;t finish this audit. {errorMessage ? "" : "Please try again."}
       </Alert>

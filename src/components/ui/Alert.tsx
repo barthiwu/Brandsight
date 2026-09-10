@@ -19,7 +19,7 @@ export function Alert({ tone = "info", children }: { tone?: Tone; children: Reac
 
 export function EmptyState({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-(--color-border) bg-slate-50/50 px-6 py-12 text-center">
+    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-(--color-border) bg-(--color-surface) px-6 py-12 text-center">
       <h3 className="text-base font-semibold text-(--color-text)">{title}</h3>
       {description && <p className="max-w-sm text-sm text-(--color-text-secondary)">{description}</p>}
       {action}

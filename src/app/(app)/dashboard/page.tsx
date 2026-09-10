@@ -65,7 +65,7 @@ export default async function DashboardPage() {
                 <li key={audit.id}>
                   <Link
                     href={`/audits/${audit.id}`}
-                    className="flex items-center justify-between gap-4 p-4 hover:bg-slate-50 sm:p-5"
+                    className="flex items-center justify-between gap-4 p-4 hover:bg-(--color-bg) sm:p-5"
                   >
                     <div className="min-w-0">
                       <p className="truncate font-medium text-(--color-text)">
@@ -123,7 +123,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 function StatusPill({ status }: { status: string }) {
   return (
-    <span className="whitespace-nowrap rounded-full border border-(--color-border) bg-slate-50 px-2.5 py-1 text-xs font-medium text-(--color-text-secondary)">
+    <span className="whitespace-nowrap rounded-full border border-(--color-border) bg-(--color-bg) px-2.5 py-1 text-xs font-medium text-(--color-text-secondary)">
       {STATUS_LABEL[status] ?? status}
     </span>
   );

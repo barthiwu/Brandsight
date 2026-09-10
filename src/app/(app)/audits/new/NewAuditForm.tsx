@@ -32,7 +32,7 @@ export function NewAuditForm({
 
       <fieldset className="flex flex-col gap-3">
         <legend className="text-sm font-medium text-(--color-text)">Audit depth</legend>
-        <label className="flex cursor-pointer flex-col gap-1 rounded-lg border border-(--color-border) p-4 hover:bg-slate-50 has-[:checked]:border-(--color-blue) has-[:checked]:bg-blue-50/40">
+        <label className="flex cursor-pointer flex-col gap-1 rounded-lg border border-(--color-border) p-4 hover:bg-(--color-bg) has-[:checked]:border-(--color-blue) has-[:checked]:bg-blue-50/40">
           <span className="flex items-center gap-2 font-medium text-(--color-text)">
             <input type="radio" name="audit_type" value="quick" defaultChecked required />
             Quick Audit
@@ -41,7 +41,7 @@ export function NewAuditForm({
             A few minutes. Based on the information you provide about your business, audience, and marketing.
           </span>
         </label>
-        <label className="flex cursor-pointer flex-col gap-1 rounded-lg border border-(--color-border) p-4 hover:bg-slate-50 has-[:checked]:border-(--color-blue) has-[:checked]:bg-blue-50/40">
+        <label className="flex cursor-pointer flex-col gap-1 rounded-lg border border-(--color-border) p-4 hover:bg-(--color-bg) has-[:checked]:border-(--color-blue) has-[:checked]:bg-blue-50/40">
           <span className="flex items-center gap-2 font-medium text-(--color-text)">
             <input type="radio" name="audit_type" value="deep" />
             Deep Audit

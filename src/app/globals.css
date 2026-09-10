@@ -13,11 +13,48 @@
   --color-success: #16a34a;
   --color-warning: #d97706;
   --color-danger: #dc2626;
+  /* The app's wordmark ("BrandSight" in every header/nav — see
+     ThemeToggle.tsx's sibling instances across layout.tsx-rendered pages)
+     is navy on the light background. Kept as its own token, separate from
+     --color-navy (still used for ordinary headings), so dark mode can flip
+     just the logo to blue without repainting every heading blue too. */
+  --color-logo: var(--color-navy);
   /* System-font stack standing in for next/font/google's Inter — see the
      comment in src/app/layout.tsx for why. Visually close to Inter on most
      platforms (San Francisco / Segoe UI / Roboto all ship as the platform
      default) and requires no external fetch at build or render time. */
   --font-inter: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Dark theme: toggled by ThemeToggle.tsx adding/removing the "dark" class
+   on <html> (persisted to localStorage, initialized pre-paint by the
+   blocking script in layout.tsx to avoid a flash of the wrong theme).
+   Every color below is consumed elsewhere purely as a CSS custom property
+   (`text-(--color-text)` etc.), so overriding the variables here re-themes
+   the whole app without touching individual components — except the logo,
+   and headings that intentionally stay dark-on-light in print contexts
+   like the PDF export, which doesn't go through this stylesheet at all. */
+.dark {
+  --color-bg: #0b1220;
+  --color-surface: #111827;
+  --color-text: #e2e8f0;
+  --color-text-secondary: #94a3b8;
+  --color-border: #1f2937;
+  /* Headings/scores use --color-navy as a near-black-on-light color; on a
+     dark background that would be nearly invisible, so it flips to a
+     near-white instead. The literal color #0b1220 (navy) becomes the page
+     *background* in dark mode instead (see --color-bg above). */
+  --color-navy: #f1f5f9;
+  --color-blue: #3b82f6;
+  --color-blue-hover: #60a5fa;
+  --color-cyan: #22d3ee;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #f87171;
+  /* The one deliberate exception to "headings stay light-on-dark": the
+     logo/wordmark goes blue in dark mode, per spec, instead of following
+     --color-navy's flip to near-white. */
+  --color-logo: var(--color-blue);
 }
 
 @theme inline {
@@ -33,11 +70,20 @@
   --color-success: var(--color-success);
   --color-warning: var(--color-warning);
   --color-danger: var(--color-danger);
+  --color-logo: var(--color-logo);
   --font-sans: var(--font-inter);
 }
 
 html {
   scroll-behavior: auto;
+  color-scheme: light;
+}
+
+html.dark {
+  /* Lets native form controls (checkboxes, date pickers), scrollbars, and
+     the browser's own UI chrome pick a dark rendering instead of staying
+     light-themed underneath an otherwise-dark page. */
+  color-scheme: dark;
 }
 
 body {

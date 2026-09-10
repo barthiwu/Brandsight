@@ -48,7 +48,7 @@ export default async function SharedAuditPage({ params }: SharedAuditPageProps) 
     <div className="min-h-screen bg-(--color-bg) px-4 py-10 sm:px-6">
       <div className="mx-auto flex max-w-3xl flex-col gap-8">
         <div className="text-center">
-          <Link href="/" className="text-lg font-bold tracking-tight text-(--color-navy)">
+          <Link href="/" className="text-[1.63rem] font-bold tracking-tight text-(--color-logo)">
             BrandSight
           </Link>
           <h1 className="mt-3 text-2xl font-semibold text-(--color-text)">{report.brand.name}</h1>

@@ -22,13 +22,20 @@ export function AppShell({
     <div className="flex min-h-screen flex-col bg-(--color-bg) lg:flex-row">
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:m-2 focus:rounded focus:bg-white focus:px-3 focus:py-2 focus:shadow"
+        className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:m-2 focus:rounded focus:bg-(--color-surface) focus:px-3 focus:py-2 focus:shadow"
       >
         Skip to content
       </a>
-      <aside className="flex shrink-0 flex-col border-b border-(--color-border) bg-white lg:w-64 lg:border-b-0 lg:border-r">
+      <aside className="flex shrink-0 flex-col border-b border-(--color-border) bg-(--color-surface) lg:w-64 lg:border-b-0 lg:border-r">
         <div className="flex items-center justify-between px-5 py-4 lg:block">
-          <Link href="/dashboard" className="text-lg font-bold tracking-tight text-(--color-navy)">
+          {/* Every other instance of this wordmark across the app links to
+              "/" (the marketing homepage) — this was the one exception,
+              linking to "/dashboard" instead, which is why clicking the
+              logo while logged in didn't behave like clicking it anywhere
+              else in the app (and looked like nothing happened at all when
+              you were already on /dashboard). Matched to the rest for
+              consistency. */}
+          <Link href="/" className="text-[1.63rem] font-bold tracking-tight text-(--color-logo)">
             BrandSight
           </Link>
         </div>
@@ -37,7 +44,7 @@ export function AppShell({
             <Link
               key={item.href}
               href={item.href}
-              className="whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-(--color-text) hover:bg-slate-100"
+              className="whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-(--color-text) hover:bg-(--color-border)"
             >
               {item.label}
             </Link>

@@ -16,9 +16,9 @@ const DIMENSION_DESCRIPTIONS: Record<string, string> = {
 export default function LandingPage() {
   return (
     <div className="flex min-h-screen flex-col bg-(--color-bg)">
-      <header className="border-b border-(--color-border) bg-white">
+      <header className="border-b border-(--color-border) bg-(--color-surface)">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
-          <span className="text-lg font-bold tracking-tight text-(--color-navy)">BrandSight</span>
+          <span className="text-[1.63rem] font-bold tracking-tight text-(--color-logo)">BrandSight</span>
           <nav className="flex items-center gap-4">
             <Link href="/how-it-works" className="text-sm font-medium text-(--color-text-secondary) hover:text-(--color-text)">
               How it works
@@ -53,7 +53,7 @@ export default function LandingPage() {
           <p className="mt-4 text-xs text-(--color-text-secondary)">No credit card. Takes a few minutes.</p>
         </section>
 
-        <section className="border-y border-(--color-border) bg-white py-16">
+        <section className="border-y border-(--color-border) bg-(--color-surface) py-16">
           <div className="mx-auto max-w-6xl px-4 sm:px-6">
             <h2 className="text-center text-2xl font-semibold text-(--color-text)">Eight dimensions, one clear score</h2>
             <p className="mx-auto mt-3 max-w-2xl text-center text-sm text-(--color-text-secondary)">
@@ -89,7 +89,13 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section className="bg-(--color-navy) py-16 text-center text-white">
+        {/* Deliberately a literal color, not --color-navy: this band is
+            paired with hardcoded text-white/text-slate-300 and is meant to
+            stay a dark contrast band in BOTH themes — --color-navy itself
+            flips to near-white under dark mode (for heading legibility
+            elsewhere), which would otherwise turn this into a white
+            section with invisible white text. */}
+        <section className="bg-[#0b1220] py-16 text-center text-white">
           <div className="mx-auto max-w-2xl px-4 sm:px-6">
             <h2 className="text-2xl font-semibold">Ready to see your brand clearly?</h2>
             <p className="mt-3 text-sm text-slate-300">
@@ -102,7 +108,7 @@ export default function LandingPage() {
         </section>
       </main>
 
-      <footer className="border-t border-(--color-border) bg-white py-8">
+      <footer className="border-t border-(--color-border) bg-(--color-surface) py-8">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 text-xs text-(--color-text-secondary) sm:flex-row sm:px-6">
           <span>© {new Date().getFullYear()} BrandSight. A free tool from Blitz SMA.</span>
           <div className="flex gap-4">

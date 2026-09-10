@@ -8,8 +8,8 @@ const VARIANT_CLASSES: Record<Variant, string> = {
   primary:
     "bg-(--color-blue) text-white hover:bg-(--color-blue-hover) disabled:bg-slate-300",
   secondary:
-    "bg-white text-(--color-text) border border-(--color-border) hover:bg-slate-50 disabled:text-slate-400",
-  ghost: "bg-transparent text-(--color-text) hover:bg-slate-100 disabled:text-slate-400",
+    "bg-(--color-surface) text-(--color-text) border border-(--color-border) hover:bg-(--color-bg) disabled:text-(--color-text-secondary)",
+  ghost: "bg-transparent text-(--color-text) hover:bg-(--color-bg) disabled:text-(--color-text-secondary)",
   danger: "bg-(--color-danger) text-white hover:bg-red-700 disabled:bg-red-200",
 };
 

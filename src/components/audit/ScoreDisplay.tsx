@@ -12,7 +12,7 @@ export function ScoreDisplay({
   confidence?: ConfidenceLevel;
 }) {
   return (
-    <div className="flex flex-col items-center gap-3 rounded-xl border border-(--color-border) bg-white p-8 text-center">
+    <div className="flex flex-col items-center gap-3 rounded-xl border border-(--color-border) bg-(--color-surface) p-8 text-center">
       <p className="text-sm font-medium uppercase tracking-wide text-(--color-text-secondary)">BrandSight Score</p>
       <p className="text-6xl font-bold text-(--color-navy)">
         {score != null ? score : "—"}

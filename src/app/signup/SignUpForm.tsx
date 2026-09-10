@@ -16,7 +16,7 @@ export function SignUpForm() {
   }
 
   return (
-    <div className="flex flex-col gap-4 rounded-xl border border-(--color-border) bg-white p-6 shadow-sm sm:p-8">
+    <div className="flex flex-col gap-4 rounded-xl border border-(--color-border) bg-(--color-surface) p-6 shadow-sm sm:p-8">
       {state.error && <Alert tone="error">{state.error}</Alert>}
 
       <form action={signInWithGoogleAction}>

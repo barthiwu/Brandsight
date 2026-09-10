@@ -25,9 +25,9 @@ const STEPS = [
 export default function HowItWorksPage() {
   return (
     <div className="min-h-screen bg-(--color-bg)">
-      <header className="border-b border-(--color-border) bg-white">
+      <header className="border-b border-(--color-border) bg-(--color-surface)">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
-          <Link href="/" className="text-lg font-bold tracking-tight text-(--color-navy)">
+          <Link href="/" className="text-[1.63rem] font-bold tracking-tight text-(--color-logo)">
             BrandSight
           </Link>
           <Link href="/signup">
@@ -57,7 +57,7 @@ export default function HowItWorksPage() {
           ))}
         </ol>
 
-        <div className="mt-12 rounded-xl border border-(--color-border) bg-white p-6">
+        <div className="mt-12 rounded-xl border border-(--color-border) bg-(--color-surface) p-6">
           <h2 className="font-semibold text-(--color-text)">Quick vs. Deep Audit</h2>
           <p className="mt-2 text-sm text-(--color-text-secondary)">
             A Quick Audit takes a few minutes and is based entirely on the information you provide about your

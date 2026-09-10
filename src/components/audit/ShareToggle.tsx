@@ -38,7 +38,7 @@ export function ShareToggle({
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-(--color-border) bg-white p-5">
+    <div className="flex flex-col gap-3 rounded-xl border border-(--color-border) bg-(--color-surface) p-5">
       <div className="flex items-center justify-between gap-4">
         <div>
           <p className="font-medium text-(--color-text)">Public sharing</p>
@@ -53,7 +53,7 @@ export function ShareToggle({
       {error && <Alert tone="error">{error}</Alert>}
       {isActive && shareUrl && (
         <div className="flex items-center gap-2">
-          <input readOnly value={shareUrl} className="flex-1 rounded-lg border border-(--color-border) bg-slate-50 px-3 py-2 text-xs" />
+          <input readOnly value={shareUrl} className="flex-1 rounded-lg border border-(--color-border) bg-(--color-bg) px-3 py-2 text-xs" />
           <Button
             type="button"
             variant="secondary"

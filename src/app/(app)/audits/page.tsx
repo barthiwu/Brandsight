@@ -38,7 +38,7 @@ export default async function AuditsPage() {
           <ul className="divide-y divide-(--color-border)">
             {audits.map((audit) => (
               <li key={audit.id}>
-                <Link href={`/audits/${audit.id}`} className="flex items-center justify-between gap-4 p-4 hover:bg-slate-50 sm:p-5">
+                <Link href={`/audits/${audit.id}`} className="flex items-center justify-between gap-4 p-4 hover:bg-(--color-bg) sm:p-5">
                   <div className="min-w-0">
                     <p className="truncate font-medium text-(--color-text)">
                       {(audit as unknown as { brands: { name: string } | null }).brands?.name ?? "Untitled brand"}
@@ -50,7 +50,7 @@ export default async function AuditsPage() {
                   {audit.status === "completed" && audit.overall_score != null ? (
                     <ScoreBandBadge band={getScoreBand(audit.overall_score)} />
                   ) : (
-                    <span className="whitespace-nowrap rounded-full border border-(--color-border) bg-slate-50 px-2.5 py-1 text-xs font-medium text-(--color-text-secondary)">
+                    <span className="whitespace-nowrap rounded-full border border-(--color-border) bg-(--color-bg) px-2.5 py-1 text-xs font-medium text-(--color-text-secondary)">
                       {STATUS_LABEL[audit.status] ?? audit.status}
                     </span>
                   )}

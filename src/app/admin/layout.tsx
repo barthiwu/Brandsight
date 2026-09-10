@@ -29,7 +29,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
       <div className="flex flex-col gap-6">
         <nav className="flex gap-2 border-b border-(--color-border) pb-3">
           {ADMIN_NAV.map((item) => (
-            <Link key={item.href} href={item.href} className="rounded-lg px-3 py-1.5 text-sm font-medium text-(--color-text) hover:bg-slate-100">
+            <Link key={item.href} href={item.href} className="rounded-lg px-3 py-1.5 text-sm font-medium text-(--color-text) hover:bg-(--color-border)">
               {item.label}
             </Link>
           ))}

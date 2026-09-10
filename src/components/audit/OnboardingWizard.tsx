@@ -136,7 +136,7 @@ export function OnboardingWizard({
                   ? "bg-(--color-blue) text-white"
                   : isSectionComplete(s, answers)
                     ? "bg-green-50 text-green-800"
-                    : "bg-slate-100 text-(--color-text-secondary)"
+                    : "bg-(--color-border) text-(--color-text-secondary)"
               }`}
             >
               {i + 1}. {SECTION_TITLES[s]}

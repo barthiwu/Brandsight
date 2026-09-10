@@ -13,7 +13,7 @@ export function LoginForm({ redirectTo, googleUnavailable }: { redirectTo?: stri
   const [state, formAction, isPending] = useActionState(signInAction, initialState);
 
   return (
-    <div className="flex flex-col gap-4 rounded-xl border border-(--color-border) bg-white p-6 shadow-sm sm:p-8">
+    <div className="flex flex-col gap-4 rounded-xl border border-(--color-border) bg-(--color-surface) p-6 shadow-sm sm:p-8">
       {googleUnavailable && (
         <Alert tone="warning">Google sign-in isn&apos;t available right now. Please use email and password.</Alert>
       )}

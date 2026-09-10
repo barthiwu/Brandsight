@@ -126,7 +126,7 @@ export default async function DimensionDetailPage({ params }: DimensionPageProps
                           <ul className="mt-1 flex flex-col gap-1 border-l-2 border-(--color-border) pl-3">
                             {citedEvidence.map((e) => (
                               <li key={e.id} className="text-xs text-(--color-text-secondary)">
-                                <span className="rounded-full bg-slate-100 px-1.5 py-0.5 font-medium capitalize">{e.evidence_status}</span>{" "}
+                                <span className="rounded-full bg-(--color-border) px-1.5 py-0.5 font-medium capitalize">{e.evidence_status}</span>{" "}
                                 {e.content}
                               </li>
                             ))}
@@ -185,7 +185,7 @@ export default async function DimensionDetailPage({ params }: DimensionPageProps
               {evidence.map((e) => (
                 <li key={e.id} className="flex flex-col gap-1 py-3">
                   <div className="flex items-center gap-2 text-xs text-(--color-text-secondary)">
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 font-medium capitalize">{e.evidence_status}</span>
+                    <span className="rounded-full bg-(--color-border) px-2 py-0.5 font-medium capitalize">{e.evidence_status}</span>
                     <span className="capitalize">{e.source_type.replace("_", " ")}</span>
                   </div>
                   <p className="text-sm text-(--color-text)">{e.content}</p>

@@ -2,7 +2,7 @@ import { forwardRef } from "react";
 import type { InputHTMLAttributes, TextareaHTMLAttributes, SelectHTMLAttributes, ReactNode } from "react";
 
 const baseInputClasses =
-  "w-full rounded-lg border border-(--color-border) bg-white px-3.5 py-2.5 text-sm text-(--color-text) placeholder:text-(--color-text-secondary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--color-blue) disabled:bg-slate-50 disabled:text-slate-400";
+  "w-full rounded-lg border border-(--color-border) bg-(--color-surface) px-3.5 py-2.5 text-sm text-(--color-text) placeholder:text-(--color-text-secondary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--color-blue) disabled:bg-(--color-bg) disabled:text-(--color-text-secondary)";
 
 interface FieldWrapperProps {
   label: string;

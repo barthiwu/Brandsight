@@ -19,7 +19,7 @@ export function DimensionCard({
   return (
     <Link
       href={`/audits/${auditId}/${dimensionKey}`}
-      className="flex flex-col gap-2 rounded-xl border border-(--color-border) bg-white p-5 transition-shadow hover:shadow-md"
+      className="flex flex-col gap-2 rounded-xl border border-(--color-border) bg-(--color-surface) p-5 transition-shadow hover:shadow-md"
     >
       <p className="text-sm font-medium text-(--color-text-secondary)">{label}</p>
       <p className="text-3xl font-semibold text-(--color-text)">{score != null ? score : "—"}</p>

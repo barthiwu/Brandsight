@@ -52,7 +52,7 @@ export function ProcessingView({ auditId }: { auditId: string }) {
   }, [auditId, router]);
 
   return (
-    <div className="flex flex-col items-center gap-4 rounded-xl border border-(--color-border) bg-white p-12 text-center">
+    <div className="flex flex-col items-center gap-4 rounded-xl border border-(--color-border) bg-(--color-surface) p-12 text-center">
       <LoadingState label={message} />
       <p className="max-w-sm text-xs text-(--color-text-secondary)">
         This usually takes a couple of minutes. Feel free to leave this page — your audit will be waiting when you
