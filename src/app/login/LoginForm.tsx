@@ -2,7 +2,12 @@
 
 import { useActionState } from "react";
 import Link from "next/link";
-import { signInAction, signInWithGoogleAction, type AuthActionState } from "@/lib/actions/auth";
+import {
+  signInAction,
+  signInWithGoogleAction,
+  resendConfirmationAction,
+  type AuthActionState,
+} from "@/lib/actions/auth";
 import { Input } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
@@ -11,13 +16,25 @@ const initialState: AuthActionState = {};
 
 export function LoginForm({ redirectTo, googleUnavailable }: { redirectTo?: string; googleUnavailable?: boolean }) {
   const [state, formAction, isPending] = useActionState(signInAction, initialState);
+  const [resendState, resendFormAction, isResendPending] = useActionState(resendConfirmationAction, initialState);
 
   return (
     <div className="flex flex-col gap-4 rounded-xl border border-(--color-border) bg-(--color-surface) p-6 shadow-sm sm:p-8">
       {googleUnavailable && (
         <Alert tone="warning">Google sign-in isn&apos;t available right now. Please use email and password.</Alert>
       )}
-      {state.error && <Alert tone="error">{state.error}</Alert>}
+      {state.error && !resendState.success && <Alert tone="error">{state.error}</Alert>}
+
+      {state.needsConfirmation && !resendState.success && (
+        <form action={resendFormAction} className="flex flex-col gap-2 rounded-lg border border-(--color-border) bg-(--color-bg) p-3">
+          <input type="hidden" name="email" value={state.submittedEmail} />
+          <p className="text-sm text-(--color-text-secondary)">Didn&apos;t get the email, or it expired?</p>
+          <Button type="submit" variant="secondary" isLoading={isResendPending} className="w-full">
+            Resend confirmation email
+          </Button>
+        </form>
+      )}
+      {resendState.success && <Alert tone="success">{resendState.success}</Alert>}
 
       <form action={signInWithGoogleAction}>
         <Button type="submit" variant="secondary" className="w-full">

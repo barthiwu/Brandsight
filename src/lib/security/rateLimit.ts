@@ -56,6 +56,7 @@ export const RATE_LIMITS = {
   signup: { limit: 5, windowSeconds: 3600 },
   signin: { limit: 10, windowSeconds: 900 },
   forgotPassword: { limit: 5, windowSeconds: 3600 },
+  resendConfirmation: { limit: 5, windowSeconds: 3600 },
   auditCreate: { limit: 10, windowSeconds: 3600 },
   auditProcess: { limit: 5, windowSeconds: 3600 },
   websiteFetch: { limit: 20, windowSeconds: 3600 },
