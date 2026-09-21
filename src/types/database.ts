@@ -155,6 +155,14 @@ export interface Database {
           processing_locked_at: string | null;
           started_at: string | null;
           completed_at: string | null;
+          // Migration 0009 — real per-audit AI token usage/cost (see
+          // usageTracking.ts) and whether this audit had to be admitted
+          // over the MAX_CONCURRENT_AUDITS soft cap (see the process
+          // route's acquireProcessingSlot).
+          ai_input_tokens: number | null;
+          ai_output_tokens: number | null;
+          ai_estimated_cost_usd: number | null;
+          admitted_over_capacity: boolean;
           created_at: string;
           updated_at: string;
         };

@@ -1,6 +1,9 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { withUsageTracking } from "@/lib/ai/usageTracking";
+import { estimateCostUsd } from "@/lib/ai/costEstimate";
+import { notifyAdminOfPipelineFailure } from "@/lib/notifications/adminAlert";
 import { gatherAuditContext, buildEvidenceRows } from "./context";
 import { labelEvidenceRows, resolveEvidenceRefs } from "./evidenceLinking";
 import { analyzeAuditAssets } from "./assetPipeline";
@@ -31,6 +34,13 @@ import type { DimensionKey, ConfidenceLevel } from "@/types/database";
 export async function runAuditPipeline(auditId: string): Promise<void> {
   const supabase = createAdminClient();
 
+  // Wraps the entire pipeline so every callStructuredStage call anywhere
+  // in the call tree below (text stages and per-asset vision analysis
+  // alike) has its real token usage recorded against this one audit —
+  // previously tracked nowhere at all. See usageTracking.ts for why this
+  // is threaded implicitly (AsyncLocalStorage) rather than passed through
+  // every stage function's signature.
+  const { usage } = await withUsageTracking(async () => {
   try {
     // --- Gather + Stage 1 (Normalize) + Stage 2 (Evidence, deterministic) ---
     const ctx = await gatherAuditContext(auditId);
@@ -199,12 +209,32 @@ export async function runAuditPipeline(auditId: string): Promise<void> {
       .eq("id", auditId);
   } catch (err) {
     console.error(`[pipeline] audit ${auditId} failed`, err);
+    const message = err instanceof Error ? err.message : "Unknown processing error.";
     await supabase
       .from("audits")
       .update({
         status: "failed",
-        processing_error: err instanceof Error ? err.message : "Unknown processing error.",
+        processing_error: message,
       })
       .eq("id", auditId);
+    // Best-effort, non-blocking — see adminAlert.ts. Previously a
+    // failure was visible only to someone who happened to check
+    // /admin/system; nothing pushed it to anyone.
+    void notifyAdminOfPipelineFailure(auditId, message);
   }
+  });
+
+  // Real usage/cost, persisted regardless of whether the pipeline
+  // ultimately succeeded or failed — tokens were spent either way (e.g.
+  // six stages succeeded before a seventh failed). estimateCostUsd
+  // returns null (not 0) when OPENAI_*_PRICE_PER_1M isn't configured, so
+  // "cost not shown" and "genuinely free" stay distinguishable.
+  await supabase
+    .from("audits")
+    .update({
+      ai_input_tokens: usage.inputTokens,
+      ai_output_tokens: usage.outputTokens,
+      ai_estimated_cost_usd: estimateCostUsd(usage),
+    })
+    .eq("id", auditId);
 }

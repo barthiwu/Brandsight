@@ -158,7 +158,9 @@ export default async function SharedAuditPage({ params }: SharedAuditPageProps) 
           <Link href="/" className="text-(--color-blue) hover:underline">
             BrandSight
           </Link>
-          .
+          , an AI-assisted marketing health-check based on the evidence available at the time of the audit. It&apos;s
+          intended as a directional starting point, not a substitute for professional advice — have a person review
+          any recommendation before acting on it.
         </p>
       </div>
     </div>

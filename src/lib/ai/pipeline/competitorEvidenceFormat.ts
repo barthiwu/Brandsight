@@ -50,6 +50,25 @@ export function formatCompetitorProvidedEvidence(competitor: CompetitorInfo): Co
 /** A successful or failed fetch of the competitor's own site — never claims content that wasn't actually retrieved. */
 export function formatCompetitorFetchedEvidence(competitor: CompetitorInfo, result: WebsiteFetchResult): CompetitorEvidenceRow {
   const url = competitor.url ?? "";
+  if (result.status === "fetched" && result.isThin) {
+    // Same JS-rendered-shell case as the brand's own website (see
+    // websiteFetcher.ts's WebsiteFetchResult.isThin) — a 200 response
+    // that parsed to almost nothing usable. Previously indistinguishable
+    // from a real fetch here too: this branch used to mark ANY "fetched"
+    // result "observed"/medium confidence even when the summary fell
+    // back to a literal "(page fetched, but no structured content could
+    // be extracted)" string — i.e. it already knew the content was
+    // empty and reported high-ish confidence anyway.
+    return {
+      dimension: "competition",
+      source_type: "competitor",
+      source_reference: url,
+      evidence_status: "unavailable",
+      confidence: "low",
+      content: `Competitor "${competitor.name}"'s website (${url}) responded but almost no readable content could be parsed — likely JavaScript-rendered. Not analyzed — never fabricated from a near-empty fetch.`,
+    };
+  }
+
   if (result.status === "fetched") {
     const summary = [
       result.title && `Title: ${result.title}`,
@@ -67,9 +86,7 @@ export function formatCompetitorFetchedEvidence(competitor: CompetitorInfo, resu
       source_reference: url,
       evidence_status: "observed",
       confidence: "medium",
-      content: `Website evidence for competitor "${competitor.name}" (${url}):\n${
-        summary || "(page fetched, but no structured content could be extracted)"
-      }`,
+      content: `Website evidence for competitor "${competitor.name}" (${url}):\n${summary}`,
     };
   }
 

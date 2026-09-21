@@ -1,5 +1,6 @@
 "use client";
 
+import Script from "next/script";
 import { useActionState } from "react";
 import { signUpAction, signInWithGoogleAction, type AuthActionState } from "@/lib/actions/auth";
 import { Input } from "@/components/ui/Field";
@@ -8,7 +9,17 @@ import { Alert } from "@/components/ui/Alert";
 
 const initialState: AuthActionState = {};
 
-export function SignUpForm() {
+/**
+ * `turnstileSiteKey` is only passed once TURNSTILE_SECRET_KEY /
+ * NEXT_PUBLIC_TURNSTILE_SITE_KEY are actually configured (see
+ * src/lib/security/turnstile.ts) — undefined today, everywhere, so the
+ * widget script and div below don't render at all and this form behaves
+ * exactly as it did before. Once configured, the widget's own script
+ * injects a hidden `cf-turnstile-response` input inside the div below —
+ * since that div is inside the <form>, the token rides along with the
+ * normal form submission with no extra client state needed here.
+ */
+export function SignUpForm({ turnstileSiteKey }: { turnstileSiteKey?: string }) {
   const [state, formAction, isPending] = useActionState(signUpAction, initialState);
 
   if (state.success) {
@@ -43,6 +54,12 @@ export function SignUpForm() {
           description="At least 8 characters."
           required
         />
+        {turnstileSiteKey && (
+          <>
+            <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" strategy="afterInteractive" async defer />
+            <div className="cf-turnstile" data-sitekey={turnstileSiteKey} data-theme="auto" />
+          </>
+        )}
         <Button type="submit" isLoading={isPending} className="w-full">
           Create free account
         </Button>

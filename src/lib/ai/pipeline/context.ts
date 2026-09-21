@@ -1,7 +1,26 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Tables, DimensionKey, EvidenceStatus, EvidenceSourceType, ConfidenceLevel } from "@/types/database";
-import { fetchWebsiteEvidence } from "@/lib/evidence/websiteFetcher";
+import { fetchWebsiteEvidence, isThinContent } from "@/lib/evidence/websiteFetcher";
+
+/**
+ * True when a "fetched" website_sources row is really a near-empty shell
+ * — almost certainly a JS-rendered site this fetcher's plain-HTML parse
+ * couldn't read (see websiteFetcher.ts's WebsiteFetchResult.isThin for
+ * the full rationale). Not persisted as its own column: every field this
+ * needs is already stored, so it's recomputed here rather than adding
+ * schema just to cache a derived value.
+ */
+function isThinWebsiteEvidence(source: Tables<"website_sources">): boolean {
+  return isThinContent({
+    title: source.title,
+    description: source.description,
+    headings: source.headings,
+    bodyText: source.body_text,
+    ctaText: source.cta_text,
+    trustSignals: source.trust_signals,
+  });
+}
 
 export interface AuditContext {
   audit: Tables<"audits">;
@@ -151,7 +170,37 @@ export function buildEvidenceRows(ctx: AuditContext): {
 
   // Website observed evidence, when the fetch succeeded.
   if (ctx.websiteSource) {
-    if (ctx.websiteSource.status === "fetched") {
+    if (ctx.websiteSource.status === "fetched" && isThinWebsiteEvidence(ctx.websiteSource)) {
+      // Technically a 200 response, but parsing came back with almost
+      // nothing usable — most likely a JS-rendered site this fetcher's
+      // plain-HTML parse (deliberately no headless browser) couldn't
+      // actually read, not a genuinely content-free real page. Before
+      // this branch existed, this case was silently treated exactly like
+      // a full, richly-parsed page — "observed", high confidence — so the
+      // AI would confidently assess a website it had effectively never
+      // read, with nothing anywhere flagging that the evidence was thin.
+      add(
+        "digital",
+        "website",
+        "inferred",
+        `This page returned a successful response, but almost no readable content could be parsed from it (no title, meta description, headings, or body text of substance) — most likely because it renders its real content with JavaScript, which this fetcher deliberately does not execute. Treat any assessment of this site's digital presence as low-confidence; it is not based on the page's actual content.`,
+        ctx.websiteSource.url
+      );
+      add(
+        "messaging",
+        "website",
+        "unavailable",
+        "Messaging/copy could not be read from the website — the fetched page had no readable text content (likely JavaScript-rendered).",
+        ctx.websiteSource.url
+      );
+      add(
+        "visual",
+        "website",
+        "unavailable",
+        "The website's visual quality could not even be inferred from structure/copy, since none was readable (likely JavaScript-rendered) — no screenshot/rendering analysis exists either.",
+        ctx.websiteSource.url
+      );
+    } else if (ctx.websiteSource.status === "fetched") {
       const summary = [
         ctx.websiteSource.title && `Title: ${ctx.websiteSource.title}`,
         ctx.websiteSource.description && `Meta description: ${ctx.websiteSource.description}`,
@@ -261,7 +310,12 @@ export function renderContextForPrompt(
     lines.push(`Competitive context: ${normalized.competitiveContext}`);
   }
 
-  if (ctx.websiteSource?.status === "fetched") {
+  if (ctx.websiteSource?.status === "fetched" && isThinWebsiteEvidence(ctx.websiteSource)) {
+    lines.push(`\n--- Website evidence (${ctx.websiteSource.url}) ---`);
+    lines.push(
+      `The page responded successfully but almost no content could be read from it — likely a JavaScript-rendered site this fetcher cannot execute. Do NOT assess this website's actual content, copy, or visual quality; treat it the same as "could not be fetched" for evaluation purposes.`
+    );
+  } else if (ctx.websiteSource?.status === "fetched") {
     lines.push(`\n--- Website evidence (${ctx.websiteSource.url}) ---`);
     lines.push(`Title: ${ctx.websiteSource.title ?? "(none)"}`);
     lines.push(`Description: ${ctx.websiteSource.description ?? "(none)"}`);

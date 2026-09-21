@@ -13,6 +13,28 @@ export interface ActionState {
   success?: string;
 }
 
+// There was previously no limit at all on how many audits one account
+// could submit for real AI processing — every audit costs real OpenAI
+// spend, and with signup free and (as of this writing) email
+// confirmation off, nothing stopped unlimited free Deep Audits (the more
+// expensive tier: vision calls, competitor fetch, website fetch, on top
+// of the same 9 stages a Quick Audit runs) from one account, or from
+// trivially many accounts. This raises the bar for casual abuse; it does
+// not by itself stop a determined multi-account abuser — that also needs
+// bot protection (Turnstile, wired up but inert until
+// TURNSTILE_SECRET_KEY is configured — see src/lib/security/turnstile.ts)
+// and enforced email confirmation (a Supabase Dashboard setting, see
+// HARDENING_REPORT.md's Email Verification update) actually turned on.
+//
+// These defaults are a starting guess, not a business decision — set
+// MAX_FREE_QUICK_AUDITS_PER_ACCOUNT / MAX_FREE_DEEP_AUDITS_PER_ACCOUNT
+// explicitly once the real numbers are decided. Either can be set to 0
+// (or a negative number) to disable that cap entirely.
+const MAX_FREE_AUDITS_PER_ACCOUNT: Record<"quick" | "deep", number> = {
+  quick: Number(process.env.MAX_FREE_QUICK_AUDITS_PER_ACCOUNT ?? 5),
+  deep: Number(process.env.MAX_FREE_DEEP_AUDITS_PER_ACCOUNT ?? 2),
+};
+
 export async function createAuditAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const parsed = createAuditSchema.safeParse({
     brand_id: formData.get("brand_id"),
@@ -96,6 +118,25 @@ export async function submitAuditForProcessingAction(auditId: string): Promise<A
   }
   if (audit.status !== "draft") {
     return { error: "This audit has already been submitted." };
+  }
+
+  const freeCap = MAX_FREE_AUDITS_PER_ACCOUNT[audit.audit_type];
+  if (freeCap > 0) {
+    // Counts audits that were actually ever submitted for processing
+    // (i.e. left "draft"), not abandoned drafts — starting and never
+    // finishing an audit shouldn't burn the account's free quota.
+    const { count } = await supabase
+      .from("audits")
+      .select("id", { count: "exact", head: true })
+      .eq("owner_id", user.id)
+      .eq("audit_type", audit.audit_type)
+      .in("status", ["ready", "processing", "completed", "failed"]);
+    if ((count ?? 0) >= freeCap) {
+      const label = audit.audit_type === "deep" ? "Deep Audit" : "Quick Audit";
+      return {
+        error: `You've used all ${freeCap} free ${label}${freeCap === 1 ? "" : "s"} on this account. Contact us if you'd like to talk about ongoing access.`,
+      };
+    }
   }
 
   const [{ data: responseRows }, { data: brand }] = await Promise.all([

@@ -29,6 +29,15 @@ vi.mock("@/lib/security/rateLimit", () => ({
   checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
 }));
 
+// turnstile.ts imports "server-only" for real, which throws unconditionally
+// outside Next's bundler — stubbed here as always-verified (matching its
+// actual default behavior when TURNSTILE_SECRET_KEY is unset, which it is
+// in every environment this test runs in), same reasoning as mocking
+// rateLimit.ts above.
+vi.mock("@/lib/security/turnstile", () => ({
+  verifyTurnstileToken: async () => true,
+}));
+
 async function callSignUp(formEntries: Record<string, string>) {
   const { signUpAction } = await import("@/lib/actions/auth");
   const formData = new FormData();

@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runAuditPipeline } from "@/lib/ai/pipeline/runPipeline";
 import { checkRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { notifyAdminOfCapacityOverrun } from "@/lib/notifications/adminAlert";
+import type { Database } from "@/types/database";
 
 // AI pipeline calls are sequential and can legitimately take a couple of
 // minutes for a Deep Audit; give this route room to finish rather than
@@ -14,6 +17,79 @@ export const dynamic = "force-dynamic";
 
 interface RouteParams {
   params: Promise<{ auditId: string }>;
+}
+
+// Nothing capped how many audits could be "processing" at once before
+// this existed — try_lock_audit_processing (migration 0004) only ever
+// prevented the *same* audit from double-processing. On a single small
+// instance (Render Starter: 0.5 CPU / 512MB), an unbounded number of
+// concurrent ~130-300s pipeline runs — each one several sequential
+// OpenAI calls plus, for Deep Audits, real outbound website/competitor
+// fetches and vision analysis — was never load-tested and is a real risk
+// the moment more than one person submits an audit around the same time.
+// Tunable per the instance's actual headroom; 3 is a conservative
+// starting point for that instance size, not a measured ceiling.
+const MAX_CONCURRENT_AUDITS = Number(process.env.MAX_CONCURRENT_AUDITS ?? 3);
+
+// ProcessingView.tsx fires this route once on mount and, from then on,
+// only ever watches audits.status via polling — it does not retry on an
+// error response (see its own comment). So rather than returning an
+// immediate 429 that would strand the user on "Analyzing your brand…"
+// forever with nothing actually happening, wait out a bounded window for
+// a slot to free up (each pipeline run is 130-300s, so a slot freeing up
+// within a minute is the common case for a short-lived burst).
+const CAPACITY_WAIT_POLL_MS = 4_000;
+const CAPACITY_WAIT_MAX_MS = 60_000;
+
+/**
+ * Tries to acquire the processing lock for `auditId`, waiting out a
+ * bounded window if the instance is currently at MAX_CONCURRENT_AUDITS.
+ * If the window elapses with capacity still full, admits the audit
+ * anyway rather than stranding it — this is a soft cap meant to smooth
+ * out a short burst, not a hard admission-control gate, since nothing
+ * downstream of this route is built to retry a hard rejection. Returns
+ * which happened so the caller can record it for /admin/system
+ * visibility: a `false` acquired with `admittedOverCapacity: false` means
+ * a *different* request already won the lock for this specific audit
+ * (e.g. a duplicate click) — genuinely nothing to do here, not a
+ * capacity issue at all.
+ */
+async function acquireProcessingSlot(
+  admin: SupabaseClient<Database>,
+  auditId: string
+): Promise<{ acquired: boolean; admittedOverCapacity: boolean }> {
+  const deadline = Date.now() + CAPACITY_WAIT_MAX_MS;
+
+  for (;;) {
+    const { data: lockAcquired } = await admin.rpc("try_lock_audit_processing", {
+      p_audit_id: auditId,
+      p_max_concurrent: MAX_CONCURRENT_AUDITS,
+    });
+    if (lockAcquired) return { acquired: true, admittedOverCapacity: false };
+
+    // A false result means either "at capacity" or "someone else already
+    // claimed THIS audit" — check which, so a duplicate-click case
+    // returns immediately instead of waiting out the whole window for an
+    // audit that's already progressing under a different request.
+    const { data: current } = await admin.from("audits").select("status").eq("id", auditId).maybeSingle();
+    if (current?.status !== "ready" && current?.status !== "failed") {
+      return { acquired: false, admittedOverCapacity: false };
+    }
+
+    if (Date.now() >= deadline) break;
+    await new Promise((resolve) => setTimeout(resolve, CAPACITY_WAIT_POLL_MS));
+  }
+
+  console.warn(
+    `[capacity] audit ${auditId} admitted over the ${MAX_CONCURRENT_AUDITS}-concurrent soft cap after a ${CAPACITY_WAIT_MAX_MS}ms wait — instance may need more headroom if this keeps happening.`
+  );
+  // Postgres's `int` (int4) tops out at 2147483647 — not
+  // Number.MAX_SAFE_INTEGER, which would overflow it and error.
+  const { data: forced } = await admin.rpc("try_lock_audit_processing", {
+    p_audit_id: auditId,
+    p_max_concurrent: 2147483647,
+  });
+  return { acquired: Boolean(forced), admittedOverCapacity: true };
 }
 
 export async function POST(_request: Request, { params }: RouteParams) {
@@ -46,12 +122,17 @@ export async function POST(_request: Request, { params }: RouteParams) {
   }
 
   const admin = createAdminClient();
-  const { data: lockAcquired } = await admin.rpc("try_lock_audit_processing", { p_audit_id: auditId });
+  const { acquired, admittedOverCapacity } = await acquireProcessingSlot(admin, auditId);
 
-  if (!lockAcquired) {
+  if (!acquired) {
     // Another request already won the lock (e.g. a duplicate click) —
     // spec §58: never run the pipeline twice concurrently for one audit.
     return NextResponse.json({ status: "processing", note: "Already in progress." });
+  }
+
+  if (admittedOverCapacity) {
+    await admin.from("audits").update({ admitted_over_capacity: true }).eq("id", auditId);
+    void notifyAdminOfCapacityOverrun(auditId);
   }
 
   await runAuditPipeline(auditId);

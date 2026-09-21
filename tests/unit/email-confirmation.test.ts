@@ -31,6 +31,15 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
+// auth.ts unconditionally imports turnstile.ts, which imports
+// "server-only" for real — throws outside Next's bundler regardless of
+// which of auth.ts's exports this file actually calls, since ESM module
+// evaluation is eager. Stubbed as always-verified, matching its real
+// default (TURNSTILE_SECRET_KEY unset) behavior.
+vi.mock("@/lib/security/turnstile", () => ({
+  verifyTurnstileToken: async () => true,
+}));
+
 vi.mock("@/lib/security/rateLimit", () => ({
   checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
   RATE_LIMITS: {

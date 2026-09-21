@@ -2,6 +2,19 @@ import "server-only";
 import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import type { z } from "zod";
+import { recordUsage } from "./usageTracking";
+
+// No temperature was set at all before this — every stage ran on the
+// model's default sampling (~1.0), so the same business, audited twice
+// with nothing actually changed, could plausibly come back with a
+// different BrandSight Score both times. That's a real trust problem for
+// a product whose whole pitch is "here's your objective score." Low but
+// not zero: 0 occasionally causes degenerate/repetitive output on longer
+// free-form text (the executive summary, recommendation prose), while a
+// low-but-nonzero value meaningfully cuts run-to-run variance without
+// that risk. Applies to every stage uniformly, since scoring
+// consistency matters for all of them, not just the numeric ones.
+const STRUCTURED_OUTPUT_TEMPERATURE = 0.2;
 
 let cachedClient: OpenAI | null = null;
 
@@ -76,6 +89,7 @@ export async function callStructuredStage<T>(params: {
         instructions: params.instructions,
         input: params.input,
         text: { format: zodTextFormat(params.schema, params.schemaName) },
+        temperature: STRUCTURED_OUTPUT_TEMPERATURE,
       });
 
       if (response.output_parsed === null) {
@@ -87,6 +101,13 @@ export async function callStructuredStage<T>(params: {
       const revalidated = params.schema.safeParse(response.output_parsed);
       if (!revalidated.success) {
         throw new Error(`Schema re-validation failed: ${revalidated.error.message}`);
+      }
+
+      // Real per-call token usage, previously recorded nowhere. See
+      // usageTracking.ts — a no-op when this call isn't inside a
+      // withUsageTracking() run (e.g. a unit test calling this directly).
+      if (response.usage) {
+        recordUsage(response.usage.input_tokens, response.usage.output_tokens);
       }
 
       return revalidated.data;

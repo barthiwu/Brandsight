@@ -16,7 +16,7 @@ export default function SignUpPage() {
             See your brand clearly — get your first audit in minutes.
           </p>
         </div>
-        <SignUpForm />
+        <SignUpForm turnstileSiteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY} />
         <p className="mt-6 text-center text-sm text-(--color-text-secondary)">
           Already have an account?{" "}
           <Link href="/login" className="font-medium text-(--color-blue) hover:underline">

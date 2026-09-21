@@ -25,6 +25,54 @@ export interface WebsiteFetchResult {
   contactInformation: Record<string, string[]>;
   trustSignals: string[];
   errorMessage?: string;
+  /**
+   * True when the fetch technically succeeded (a 200 HTML response came
+   * back) but almost nothing usable could be parsed out of it — the
+   * telltale signature of a JS-rendered site (Wix/Squarespace/Shopify
+   * themes, a React/Vue SPA shell, etc.) where the real content loads
+   * client-side and this fetcher, deliberately a plain HTML parse with no
+   * headless browser (spec: never execute fetched JavaScript), only ever
+   * sees an near-empty shell. Before this flag existed, that case was
+   * indistinguishable from a genuinely thin/simple real page: both came
+   * back `status: "fetched"` and got treated as full "observed" evidence,
+   * so the AI could confidently assess a website it had effectively never
+   * really read, without anything about that being visible anywhere.
+   */
+  isThin: boolean;
+}
+
+// A fetched page is "thin" when essentially none of the structural
+// signal a real server-rendered page reliably has (page title,
+// meta description, headings, CTA text, trust-signal phrases, and a
+// meaningful amount of body text) came through parsing. The threshold is
+// deliberately generous — a genuinely minimal real page (a single-page
+// portfolio site, say) can still trip it — the label means "treat this
+// evidence with real caution," not "this fetch failed."
+const THIN_BODY_TEXT_CHARS = 200;
+
+/**
+ * Exported so callers that reload a previously-fetched result from
+ * storage (website_sources columns are the same shape, just snake_case
+ * and possibly null instead of undefined — see
+ * pipeline/context.ts's isThinWebsiteEvidence) can recompute "thin"
+ * without needing a dedicated DB column or duplicating the heuristic.
+ */
+export function isThinContent(parsed: {
+  title?: string | null;
+  description?: string | null;
+  headings: string[];
+  bodyText?: string | null;
+  ctaText: string[];
+  trustSignals: string[];
+}): boolean {
+  const hasStructuralSignal =
+    Boolean(parsed.title) ||
+    Boolean(parsed.description) ||
+    parsed.headings.length > 0 ||
+    parsed.ctaText.length > 0 ||
+    parsed.trustSignals.length > 0;
+  const bodyTextChars = (parsed.bodyText ?? "").length;
+  return !hasStructuralSignal && bodyTextChars < THIN_BODY_TEXT_CHARS;
 }
 
 const CTA_PATTERNS = [
@@ -180,6 +228,7 @@ function parseHtml(html: string): WebsiteFetchResult {
     ctaText,
     contactInformation,
     trustSignals,
+    isThin: isThinContent({ title, description, headings, bodyText, ctaText, trustSignals }),
   };
 }
 
@@ -191,5 +240,6 @@ function emptyFailure(message: string): WebsiteFetchResult {
     contactInformation: {},
     trustSignals: [],
     errorMessage: message,
+    isThin: false,
   };
 }

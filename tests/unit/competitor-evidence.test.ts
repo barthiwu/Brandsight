@@ -33,6 +33,7 @@ describe("formatCompetitorFetchedEvidence", () => {
       ctaText: ["Order now"],
       contactInformation: {},
       trustSignals: ["Testimonials or case studies present"],
+      isThin: false,
     };
     const row = formatCompetitorFetchedEvidence(COMPETITOR, result);
     expect(row.evidence_status).toBe("observed");
@@ -48,11 +49,35 @@ describe("formatCompetitorFetchedEvidence", () => {
       contactInformation: {},
       trustSignals: [],
       errorMessage: "Blocked by SSRF policy.",
+      isThin: false,
     };
     const row = formatCompetitorFetchedEvidence(COMPETITOR, result);
     expect(row.evidence_status).toBe("unavailable");
     expect(row.content).toContain("Blocked by SSRF policy.");
     expect(row.content).not.toContain("Order now");
+  });
+
+  it("marks a thin fetch (JS-rendered shell) as 'unavailable' instead of a confident-but-empty 'observed' summary", () => {
+    // Regression for the exact same blind spot fixed on the brand's own
+    // website evidence (see thin-website-evidence.test.ts): this branch
+    // used to mark ANY "fetched" result "observed"/medium confidence
+    // even when the summary fell back to a literal "(page fetched, but
+    // no structured content could be extracted)" string.
+    const result: WebsiteFetchResult = {
+      status: "fetched",
+      title: undefined,
+      description: undefined,
+      headings: [],
+      ctaText: [],
+      contactInformation: {},
+      trustSignals: [],
+      isThin: true,
+    };
+    const row = formatCompetitorFetchedEvidence(COMPETITOR, result);
+    expect(row.evidence_status).toBe("unavailable");
+    expect(row.confidence).toBe("low");
+    expect(row.content).toMatch(/javascript/i);
+    expect(row.content).not.toContain("page fetched, but no structured content");
   });
 });
 

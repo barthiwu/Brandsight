@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { signUpSchema, signInSchema, forgotPasswordSchema, resetPasswordSchema } from "@/lib/validation/schemas";
 import { checkRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { verifyTurnstileToken } from "@/lib/security/turnstile";
 
 export interface AuthActionState {
   error?: string;
@@ -29,6 +30,14 @@ export async function signUpAction(_prev: AuthActionState, formData: FormData): 
 
   const rl = await checkRateLimit(`signup:${parsed.data.email.toLowerCase()}`, { limit: 5, windowSeconds: 3600 });
   if (!rl.allowed) return { error: "Too many attempts. Please try again later." };
+
+  // No-op until TURNSTILE_SECRET_KEY is configured (see turnstile.ts) —
+  // signup behavior is unchanged until then.
+  const turnstileToken = formData.get("cf-turnstile-response");
+  const humanVerified = await verifyTurnstileToken(typeof turnstileToken === "string" ? turnstileToken : null);
+  if (!humanVerified) {
+    return { error: "Verification failed. Please try again." };
+  }
 
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signUp({
