@@ -27,6 +27,8 @@ vi.mock("@/lib/supabase/server", () => ({
 
 vi.mock("@/lib/security/rateLimit", () => ({
   checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
+  RATE_LIMITS: { signup: { limit: 5, windowSeconds: 3600 } },
+  IP_RATE_LIMITS: { signup: { limit: 20, windowSeconds: 3600 } },
 }));
 
 // turnstile.ts imports "server-only" for real, which throws unconditionally
@@ -36,6 +38,14 @@ vi.mock("@/lib/security/rateLimit", () => ({
 // rateLimit.ts above.
 vi.mock("@/lib/security/turnstile", () => ({
   verifyTurnstileToken: async () => true,
+}));
+
+// clientIp.ts imports "server-only" for real, same transitive-import
+// problem as turnstile.ts above — signUpAction's new IP-keyed rate-limit
+// backstop calls getClientIp() unconditionally. Returning null matches
+// its real fallback when no x-forwarded-for/x-real-ip header is present.
+vi.mock("@/lib/security/clientIp", () => ({
+  getClientIp: async () => null,
 }));
 
 async function callSignUp(formEntries: Record<string, string>) {

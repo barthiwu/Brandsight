@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   brandSchema,
   brandAudienceSchema,
+  marketingProfileSchema,
   competitorSchema,
   socialProfileSchema,
 } from "@/lib/validation/schemas";
@@ -13,6 +14,32 @@ import {
 export interface ActionState {
   error?: string;
   success?: string;
+}
+
+/**
+ * Defense-in-depth ownership check (security audit finding), added
+ * alongside every brand-scoped mutation below. RLS (migration 0005)
+ * already scopes every one of these tables to the brand's owner — a
+ * cross-account call was already affecting 0 rows, not actually
+ * succeeding — so this was never an active IDOR. But it was a single
+ * point of failure with no application-layer backstop: if RLS is ever
+ * disabled, a policy regresses in a later migration, or one of these
+ * call sites is later changed to use the service-role admin client the
+ * way the AI-pipeline code legitimately does elsewhere, the mutation
+ * would become fully open with nothing else catching it. This also
+ * fixes a smaller, real issue along the way: several of these actions
+ * returned a success message (e.g. "Brand updated.") even when RLS had
+ * silently blocked the write for a non-owner — checking explicitly means
+ * that now surfaces as a real, honest error instead.
+ */
+async function requireOwnedBrand(supabase: Awaited<ReturnType<typeof createClient>>, brandId: string) {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { user: null, brand: null };
+
+  const { data: brand } = await supabase.from("brands").select("id").eq("id", brandId).eq("owner_id", user.id).maybeSingle();
+  return { user, brand };
 }
 
 function fieldsFromForm(formData: FormData, keys: string[]) {
@@ -58,6 +85,10 @@ export async function updateBrandAction(brandId: string, _prev: ActionState, for
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
 
   const supabase = await createClient();
+  const { user, brand } = await requireOwnedBrand(supabase, brandId);
+  if (!user) redirect("/login");
+  if (!brand) return { error: "Brand not found." };
+
   const { error } = await supabase.from("brands").update(normalizeBrand(parsed.data)).eq("id", brandId);
   if (error) return { error: "Could not update brand." };
 
@@ -77,6 +108,10 @@ const STORAGE_BUCKET = process.env.STORAGE_BUCKET_NAME ?? "brand-assets";
  */
 export async function deleteBrandAction(brandId: string) {
   const supabase = await createClient();
+  const { user, brand } = await requireOwnedBrand(supabase, brandId);
+  if (!user) redirect("/login");
+  if (!brand) redirect("/brands");
+
   const { data: audits } = await supabase.from("audits").select("id").eq("brand_id", brandId);
   const auditIds = (audits ?? []).map((a) => a.id);
 
@@ -124,6 +159,10 @@ export async function upsertBrandAudienceAction(brandId: string, _prev: ActionSt
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
 
   const supabase = await createClient();
+  const { user, brand } = await requireOwnedBrand(supabase, brandId);
+  if (!user) redirect("/login");
+  if (!brand) return { error: "Brand not found." };
+
   const record = Object.fromEntries(Object.entries(parsed.data).map(([k, v]) => [k, v || null]));
 
   const { error } = await supabase.from("brand_audience").upsert(
@@ -137,17 +176,30 @@ export async function upsertBrandAudienceAction(brandId: string, _prev: ActionSt
 }
 
 export async function upsertMarketingProfileAction(brandId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
-  const channels = formData.getAll("channels").map(String);
+  const parsed = marketingProfileSchema.safeParse({
+    channels: formData.getAll("channels").map(String),
+    posting_frequency: formData.get("posting_frequency") ?? "",
+    advertising_active: formData.get("advertising_active") === "true",
+    content_creation_process: formData.get("content_creation_process") ?? "",
+    marketing_team_size: formData.get("marketing_team_size") ?? "",
+    marketing_budget_range: formData.get("marketing_budget_range") ?? "",
+  });
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+
   const supabase = await createClient();
+  const { user, brand } = await requireOwnedBrand(supabase, brandId);
+  if (!user) redirect("/login");
+  if (!brand) return { error: "Brand not found." };
+
   const { error } = await supabase.from("marketing_profiles").upsert(
     {
       brand_id: brandId,
-      channels,
-      posting_frequency: String(formData.get("posting_frequency") ?? "") || null,
-      advertising_active: formData.get("advertising_active") === "true",
-      content_creation_process: String(formData.get("content_creation_process") ?? "") || null,
-      marketing_team_size: String(formData.get("marketing_team_size") ?? "") || null,
-      marketing_budget_range: String(formData.get("marketing_budget_range") ?? "") || null,
+      channels: parsed.data.channels,
+      posting_frequency: parsed.data.posting_frequency || null,
+      advertising_active: parsed.data.advertising_active,
+      content_creation_process: parsed.data.content_creation_process || null,
+      marketing_team_size: parsed.data.marketing_team_size || null,
+      marketing_budget_range: parsed.data.marketing_budget_range || null,
     },
     { onConflict: "brand_id" }
   );
@@ -166,6 +218,10 @@ export async function addCompetitorAction(brandId: string, _prev: ActionState, f
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid competitor" };
 
   const supabase = await createClient();
+  const { user, brand } = await requireOwnedBrand(supabase, brandId);
+  if (!user) redirect("/login");
+  if (!brand) return { error: "Brand not found." };
+
   const { count } = await supabase
     .from("competitors")
     .select("*", { count: "exact", head: true })
@@ -186,7 +242,15 @@ export async function addCompetitorAction(brandId: string, _prev: ActionState, f
 
 export async function removeCompetitorAction(brandId: string, competitorId: string) {
   const supabase = await createClient();
-  await supabase.from("competitors").delete().eq("id", competitorId);
+  const { user, brand } = await requireOwnedBrand(supabase, brandId);
+  if (!user) redirect("/login");
+  if (!brand) return;
+
+  // Scoped to brand_id too, not just the competitor's own id — belt and
+  // suspenders alongside the ownership check above, so a competitorId
+  // that doesn't actually belong to this brandId can never be deleted
+  // via this call even if the two were mismatched by mistake upstream.
+  await supabase.from("competitors").delete().eq("id", competitorId).eq("brand_id", brandId);
   revalidatePath(`/brands/${brandId}`);
 }
 
@@ -199,6 +263,10 @@ export async function addSocialProfileAction(brandId: string, _prev: ActionState
   if (!parsed.success) return { error: "Invalid social profile" };
 
   const supabase = await createClient();
+  const { user, brand } = await requireOwnedBrand(supabase, brandId);
+  if (!user) redirect("/login");
+  if (!brand) return { error: "Brand not found." };
+
   const { error } = await supabase.from("social_profiles").insert({
     brand_id: brandId,
     platform: parsed.data.platform,
@@ -217,6 +285,10 @@ export async function updateBrandWebsiteAction(brandId: string, _prev: ActionSta
   }
 
   const supabase = await createClient();
+  const { user, brand } = await requireOwnedBrand(supabase, brandId);
+  if (!user) redirect("/login");
+  if (!brand) return { error: "Brand not found." };
+
   const { error } = await supabase.from("brands").update({ website_url: url || null }).eq("id", brandId);
   if (error) return { error: "Could not save website." };
 
@@ -226,6 +298,10 @@ export async function updateBrandWebsiteAction(brandId: string, _prev: ActionSta
 
 export async function removeSocialProfileAction(brandId: string, socialProfileId: string) {
   const supabase = await createClient();
-  await supabase.from("social_profiles").delete().eq("id", socialProfileId);
+  const { user, brand } = await requireOwnedBrand(supabase, brandId);
+  if (!user) redirect("/login");
+  if (!brand) return;
+
+  await supabase.from("social_profiles").delete().eq("id", socialProfileId).eq("brand_id", brandId);
   revalidatePath(`/brands/${brandId}`);
 }

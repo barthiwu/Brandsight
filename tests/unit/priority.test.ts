@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computePriorityScore, rankByPriority } from "@/lib/scoring/priority";
+import { computePriorityScore, rankByPriority, rankStrengthsAndWeaknesses } from "@/lib/scoring/priority";
 
 describe("computePriorityScore", () => {
   it("ranks high-impact, low-difficulty items above low-impact, high-difficulty ones", () => {
@@ -87,5 +87,55 @@ describe("computePriorityScore tie-breaking inputs", () => {
     const high = computePriorityScore({ impact: "medium", difficulty: "medium", severity: "high" });
     const critical = computePriorityScore({ impact: "medium", difficulty: "medium", severity: "critical" });
     expect(critical).toBe(high);
+  });
+});
+
+describe("rankStrengthsAndWeaknesses", () => {
+  // Regression test for a real bug found in a security/bug audit:
+  // runPipeline.ts used to attach each finding's priority_score via
+  // `findings.filter(...).map((f, i) => ({ ..., priority_score:
+  // findingRows[i].priority_score }))` — but `i` there is the
+  // *post-filter* index, while findingRows is parallel to the full,
+  // unfiltered findings array. This reproduces that exact scenario: an
+  // "opportunity" finding (filtered out) sits before a high-priority
+  // weakness and a low-priority strength.
+  it("keeps each finding's own priority_score even when an earlier 'opportunity' finding gets filtered out", () => {
+    const findings = [
+      { id: "opp", type: "opportunity" as const },
+      { id: "important-weakness", type: "weakness" as const },
+      { id: "minor-strength", type: "strength" as const },
+    ];
+    // Index-parallel to `findings` above, exactly as findingRows is in
+    // runPipeline.ts: the opportunity scores lowest, the weakness scores
+    // highest, the strength scores lowest of the two kept.
+    const priorityScores = [1, 9, 2];
+
+    const ranked = rankStrengthsAndWeaknesses(findings, priorityScores);
+
+    expect(ranked.map((f) => f.id)).toEqual(["important-weakness", "minor-strength"]);
+    expect(ranked.find((f) => f.id === "important-weakness")?.priority_score).toBe(9);
+    expect(ranked.find((f) => f.id === "minor-strength")?.priority_score).toBe(2);
+    // Confirms the bug this fixes would have failed this test: the old
+    // post-filter-index logic would have given "important-weakness"
+    // (post-filter index 0) the *opportunity's* score (1) and
+    // "minor-strength" (post-filter index 1) the *weakness's* score (9)
+    // — inverting the ranking entirely.
+  });
+
+  it("filters out every 'opportunity' finding regardless of position", () => {
+    const findings = [
+      { id: "a", type: "strength" as const },
+      { id: "b", type: "opportunity" as const },
+      { id: "c", type: "weakness" as const },
+      { id: "d", type: "opportunity" as const },
+    ];
+    const ranked = rankStrengthsAndWeaknesses(findings, [1, 2, 3, 4]);
+    expect(ranked.map((f) => f.id).sort()).toEqual(["a", "c"]);
+  });
+
+  it("defaults a missing/undefined score to 0 rather than throwing or misaligning", () => {
+    const findings = [{ id: "a", type: "weakness" as const }];
+    const ranked = rankStrengthsAndWeaknesses(findings, []);
+    expect(ranked[0].priority_score).toBe(0);
   });
 });

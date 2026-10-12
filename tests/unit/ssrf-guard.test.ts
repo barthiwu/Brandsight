@@ -1,5 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ipToLong, isIpInCidr, isPrivateOrReservedIp, BLOCKED_IPV4_CIDRS } from "@/lib/evidence/ipRangeCheck";
+
+// ssrfGuard.ts does `import "server-only"`, which throws outside Next's
+// own bundler — stub it so assertSafeExternalUrl can be exercised
+// directly under plain vitest (same pattern used elsewhere in this
+// suite, e.g. website-fetcher-redirect.test.ts).
+vi.mock("server-only", () => ({}));
+const { assertSafeExternalUrl } = await import("@/lib/evidence/ssrfGuard");
 
 describe("ipToLong", () => {
   it("converts a dotted-quad IPv4 address to its 32-bit integer form", () => {
@@ -96,5 +103,50 @@ describe("isPrivateOrReservedIp", () => {
     for (const cidr of BLOCKED_IPV4_CIDRS) {
       expect(cidr).toMatch(/^\d{1,3}(\.\d{1,3}){3}\/\d{1,2}$/);
     }
+  });
+});
+
+describe("assertSafeExternalUrl — bracketed IPv6 literals", () => {
+  // These are all literal-IP URLs, so assertSafeExternalUrl takes the
+  // net.isIP() short-circuit and never needs a real DNS lookup — safe to
+  // run in any sandbox, unlike the hostname-based redirect tests.
+  //
+  // Regression coverage for a real bug fixed alongside the DNS-rebinding
+  // pinning fix: new URL("http://[::1]/").hostname is the *bracketed*
+  // string "[::1]", which neither BLOCKED_HOSTNAMES nor net.isIP()
+  // recognized — so every bracketed IPv6-literal URL fell through to a
+  // DNS lookup of the literal text "[::1]", which always fails and was
+  // reported as "Could not resolve this host." That failed *closed* (so
+  // it was never an SSRF bypass), but it silently rejected every
+  // legitimate IPv6-literal URL and meant the carefully-written IPv6
+  // branch of isPrivateOrReservedIp was unreachable from real URLs.
+
+  it("blocks a bracketed IPv6 loopback literal, by its actual reason rather than a bare DNS failure", async () => {
+    const result = await assertSafeExternalUrl("http://[::1]/");
+    expect(result.ok).toBe(false);
+    // "::1" is explicitly in BLOCKED_HOSTNAMES, so this is rejected a step
+    // earlier than the private/reserved-IP check below — either way, the
+    // point of this regression test is that it's rejected for the real
+    // reason rather than falling through to a DNS lookup of the literal
+    // string "[::1]" and failing with "Could not resolve this host."
+    expect(result.reason).toMatch(/not allowed/i);
+  });
+
+  it("blocks a bracketed IPv6 unique-local literal (e.g. an internal service)", async () => {
+    const result = await assertSafeExternalUrl("http://[fd12:3456:789a::1]/");
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/private or reserved address/i);
+  });
+
+  it("blocks a bracketed link-local literal (covers the IPv6 metadata-style address space)", async () => {
+    const result = await assertSafeExternalUrl("http://[fe80::1]/");
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/private or reserved address/i);
+  });
+
+  it("allows a bracketed, ordinary public IPv6 literal", async () => {
+    const result = await assertSafeExternalUrl("http://[2001:4860:4860::8888]/");
+    expect(result.ok).toBe(true);
+    expect(result.resolvedIp).toBe("2001:4860:4860::8888");
   });
 });

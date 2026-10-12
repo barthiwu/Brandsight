@@ -57,10 +57,27 @@ export const RATE_LIMITS = {
   signin: { limit: 10, windowSeconds: 900 },
   forgotPassword: { limit: 5, windowSeconds: 3600 },
   resendConfirmation: { limit: 5, windowSeconds: 3600 },
+  resetPassword: { limit: 10, windowSeconds: 900 },
   auditCreate: { limit: 10, windowSeconds: 3600 },
   auditProcess: { limit: 5, windowSeconds: 3600 },
   websiteFetch: { limit: 20, windowSeconds: 3600 },
   assetUpload: { limit: 30, windowSeconds: 3600 },
   shareGenerate: { limit: 20, windowSeconds: 3600 },
   leadSubmit: { limit: 5, windowSeconds: 3600 },
+} as const satisfies Record<string, RateLimitOptions>;
+
+/**
+ * IP-keyed secondary buckets for the auth endpoints that are otherwise
+ * keyed only by attacker-supplied email, closing the "rotate the email,
+ * get a fresh bucket" gap (see clientIp.ts). Deliberately looser than the
+ * per-email limits — one IP can legitimately be many real users behind a
+ * NAT/office network — so this is a backstop against scripted abuse from
+ * a single source, not a replacement for the per-email limit.
+ */
+export const IP_RATE_LIMITS = {
+  signup: { limit: 20, windowSeconds: 3600 },
+  signin: { limit: 30, windowSeconds: 900 },
+  forgotPassword: { limit: 20, windowSeconds: 3600 },
+  resendConfirmation: { limit: 20, windowSeconds: 3600 },
+  leadSubmit: { limit: 20, windowSeconds: 3600 },
 } as const satisfies Record<string, RateLimitOptions>;

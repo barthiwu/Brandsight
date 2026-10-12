@@ -47,7 +47,24 @@ vi.mock("@/lib/security/rateLimit", () => ({
     signin: { limit: 10, windowSeconds: 900 },
     forgotPassword: { limit: 5, windowSeconds: 3600 },
     resendConfirmation: { limit: 5, windowSeconds: 3600 },
+    resetPassword: { limit: 10, windowSeconds: 900 },
   },
+  IP_RATE_LIMITS: {
+    signup: { limit: 20, windowSeconds: 3600 },
+    signin: { limit: 30, windowSeconds: 900 },
+    forgotPassword: { limit: 20, windowSeconds: 3600 },
+    resendConfirmation: { limit: 20, windowSeconds: 3600 },
+  },
+}));
+
+// clientIp.ts imports "server-only" for real, same transitive-import
+// problem as turnstile.ts above — auth.ts's new IP-keyed rate-limit
+// backstop (see checkAuthRateLimit) calls getClientIp() unconditionally.
+// Returning null here matches its real fallback behavior when no
+// x-forwarded-for/x-real-ip header is present (e.g. outside a request
+// context), which is exactly this test environment.
+vi.mock("@/lib/security/clientIp", () => ({
+  getClientIp: async () => null,
 }));
 
 async function callSignIn(formEntries: Record<string, string>) {
@@ -107,6 +124,37 @@ describe("signInAction — unconfirmed-email handling", () => {
     mockSignInWithPassword.mockResolvedValue({ data: { session: { access_token: "tok" } }, error: null });
 
     await expect(callSignIn(credentials)).rejects.toThrow("NEXT_REDIRECT:/dashboard");
+  });
+
+  it("honors a legitimate same-site redirectTo on successful sign-in", async () => {
+    mockSignInWithPassword.mockResolvedValue({ data: { session: { access_token: "tok" } }, error: null });
+
+    await expect(callSignIn({ ...credentials, redirectTo: "/audits/123" })).rejects.toThrow(
+      "NEXT_REDIRECT:/audits/123"
+    );
+  });
+
+  // Open-redirect regression test (security audit finding): signInAction
+  // used to redirect to any value whose raw string merely started with
+  // "/", which a protocol-relative URL like "//evil.com" also does —
+  // browsers resolve that as "same scheme, attacker's host." A phishing
+  // link such as
+  // "https://brandsight.app/login?redirectTo=//attacker.example/phish"
+  // would log the victim in for real against the real site, then
+  // silently send them to the attacker's host. Every one of these must
+  // fall back to /dashboard instead.
+  it.each([
+    ["//evil.example/phish", "a protocol-relative URL"],
+    ["\\\\evil.example/phish", "a backslash host (browsers normalize \\ to /)"],
+    ["/\\evil.example/phish", "a leading-slash-then-backslash host"],
+    ["https://evil.example/phish", "a fully-qualified attacker URL"],
+    ["http:evil.example", "a scheme-relative opaque URL"],
+  ])("falls back to /dashboard for %s (%s) instead of following it", async (maliciousRedirectTo) => {
+    mockSignInWithPassword.mockResolvedValue({ data: { session: { access_token: "tok" } }, error: null });
+
+    await expect(callSignIn({ ...credentials, redirectTo: maliciousRedirectTo })).rejects.toThrow(
+      "NEXT_REDIRECT:/dashboard"
+    );
   });
 });
 

@@ -282,17 +282,20 @@ export function renderContextForPrompt(
   normalized?: { businessSummary: string; audienceSummary: string; positioningSummary: string; objectivesSummary: string; marketingSummary: string; competitiveContext: string },
   /**
    * Real per-asset vision/document analysis text (from
-   * pipeline/assetPipeline.ts's analyzeAuditAssets), keyed by file name.
+   * pipeline/assetPipeline.ts's analyzeAuditAssets), keyed by asset.id —
+   * NOT file name, which has no uniqueness constraint and let two
+   * same-named assets collide into one Map entry (see
+   * AssetEvidenceRow.asset_id's doc comment for the bug this fixes).
    * Optional because this function runs before that analysis exists in
    * some call sites; when omitted, assets are described by name only.
    */
-  assetAnalysisByFileName?: Map<string, string>,
+  assetAnalysisByAssetId?: Map<string, string>,
   /**
    * Real competitor evidence text (from
    * pipeline/competitorPipeline.ts's gatherCompetitorEvidence) — includes
    * fetched-site summaries for Deep audits and honest "unavailable" notes
    * for a failed fetch. Optional for the same reason as
-   * assetAnalysisByFileName above.
+   * assetAnalysisByAssetId above.
    */
   competitorEvidenceLines?: string[]
 ): string {
@@ -351,10 +354,10 @@ export function renderContextForPrompt(
   lines.push(`\n--- Uploaded brand assets ---`);
   if (ctx.assets.length === 0) {
     lines.push("None uploaded.");
-  } else if (assetAnalysisByFileName) {
+  } else if (assetAnalysisByAssetId) {
     lines.push(
       ctx.assets
-        .map((a) => assetAnalysisByFileName.get(a.file_name) ?? `"${a.file_name}": analysis unavailable.`)
+        .map((a) => assetAnalysisByAssetId.get(a.id) ?? `"${a.file_name}": analysis unavailable.`)
         .join("\n\n")
     );
   } else {

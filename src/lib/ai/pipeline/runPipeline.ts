@@ -15,7 +15,7 @@ import { runRecommendationsStage } from "./stage5-recommendations";
 import { runExecutiveSummaryStage } from "./stage7-summary";
 import { runActionPlanStage } from "./stage8-actionplan";
 import { computeDimensionScore, computeOverallScore, calculateConfidence, calculateOverallConfidence } from "@/lib/scoring/engine";
-import { computePriorityScore, rankByPriority } from "@/lib/scoring/priority";
+import { computePriorityScore, rankByPriority, rankStrengthsAndWeaknesses } from "@/lib/scoring/priority";
 import { ALL_DIMENSION_KEYS } from "@/lib/scoring/dimensions";
 import type { DimensionKey, ConfidenceLevel } from "@/types/database";
 
@@ -52,7 +52,11 @@ export async function runAuditPipeline(auditId: string): Promise<void> {
     // file-name list. Best-effort: a failure on one asset yields honest
     // "unavailable" evidence for that asset alone (see assetPipeline.ts).
     const assetEvidenceRows = await analyzeAuditAssets(ctx.assets);
-    const assetAnalysisByFileName = new Map(assetEvidenceRows.map((r) => [r.source_reference ?? "", r.content ?? ""]));
+    // Keyed by asset.id, not file_name — file_name has no uniqueness
+    // constraint (a user re-uploading a same-named file is normal), so
+    // keying this by name let two same-named assets silently collide
+    // into one Map entry (see AssetEvidenceRow.asset_id's doc comment).
+    const assetAnalysisByAssetId = new Map(assetEvidenceRows.map((r) => [r.asset_id, r.content ?? ""]));
 
     // Real competitor evidence (fetches each competitor's site for Deep
     // audits; records user-provided name/notes only for Quick — see
@@ -75,7 +79,7 @@ export async function runAuditPipeline(auditId: string): Promise<void> {
     const labeledEvidence = labelEvidenceRows(insertedEvidence);
 
     // --- Stage 3: Dimension analysis ---
-    const dimensionAnalyses = await runDimensionAnalysisStage(ctx, normalized, assetAnalysisByFileName, competitorEvidenceLines);
+    const dimensionAnalyses = await runDimensionAnalysisStage(ctx, normalized, assetAnalysisByAssetId, competitorEvidenceLines);
 
     const dimensionScores: Partial<Record<DimensionKey, number | null>> = {};
     const dimensionConfidences: ConfidenceLevel[] = [];
@@ -159,10 +163,12 @@ export async function runAuditPipeline(auditId: string): Promise<void> {
     const overall = computeOverallScore(dimensionScores);
     const overallConfidence = calculateOverallConfidence(dimensionConfidences);
 
-    const strengthsAndWeaknesses = rankByPriority(
-      findings
-        .filter((f) => f.type !== "opportunity")
-        .map((f, i) => ({ ...f, priority_score: findingRows[i]?.priority_score ?? 0 }))
+    // See rankStrengthsAndWeaknesses's doc comment for the misalignment
+    // bug this fixes (it used to attach priority_score by a post-filter
+    // index, corrupting which score landed on which finding).
+    const strengthsAndWeaknesses = rankStrengthsAndWeaknesses(
+      findings,
+      findingRows.map((r) => r.priority_score)
     ).slice(0, 5);
 
     // --- Stage 7: Executive summary ---

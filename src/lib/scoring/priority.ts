@@ -37,3 +37,29 @@ export function computePriorityScore(input: {
 export function rankByPriority<T extends { priority_score?: number | null }>(items: T[]): T[] {
   return [...items].sort((a, b) => (b.priority_score ?? 0) - (a.priority_score ?? 0));
 }
+
+/**
+ * Attaches each finding's own priority_score (matched by array index —
+ * `priorityScores` must be the same length and order as `findings`,
+ * i.e. computed from the same, unfiltered array) BEFORE filtering out
+ * "opportunity" findings, then ranks what's left.
+ *
+ * The order matters and fixes a real bug: runPipeline.ts used to attach
+ * priority_score via `findings.filter(...).map((f, i) => ...)`, where
+ * `i` was the *post-filter* index — no longer aligned with the
+ * separately-computed, full-length findingRows array it was reading
+ * from. Since Stage 4 routinely interleaves "opportunity" findings with
+ * strengths/weaknesses, this wasn't a rare edge case: any time an
+ * opportunity finding sat earlier in the array than a strength/weakness,
+ * every finding after it silently inherited some *other* finding's
+ * score, corrupting what counted as the audit's top strengths/weaknesses
+ * (and, downstream, what Stage 7's executive summary highlighted as
+ * "What's Working" / "What Needs Attention").
+ */
+export function rankStrengthsAndWeaknesses<F extends { type: string }>(
+  findings: F[],
+  priorityScores: (number | null | undefined)[]
+): (F & { priority_score: number })[] {
+  const withScores = findings.map((f, i) => ({ ...f, priority_score: priorityScores[i] ?? 0 }));
+  return rankByPriority(withScores.filter((f) => f.type !== "opportunity"));
+}

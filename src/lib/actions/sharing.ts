@@ -45,6 +45,21 @@ export async function enableSharingAction(auditId: string): Promise<ShareState> 
 
 export async function disableSharingAction(auditId: string): Promise<ShareState> {
   const supabase = await createClient();
+  // Defense-in-depth (security audit finding): every other mutating
+  // action in this file checks auth.getUser() first; this one didn't and
+  // relied on RLS alone. RLS (migration 0005) already scopes
+  // audit_shares to the audit's owner, so this was never an active IDOR
+  // — just a gap worth closing for the same reason as brands.ts's
+  // requireOwnedBrand (see its comment): a single point of failure, and
+  // a success response even when RLS had silently blocked the write.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const { data: audit } = await supabase.from("audits").select("id").eq("id", auditId).eq("owner_id", user.id).maybeSingle();
+  if (!audit) return { error: "Audit not found." };
+
   const { error } = await supabase.from("audit_shares").update({ is_active: false }).eq("audit_id", auditId);
   if (error) return { error: "Could not disable sharing." };
 

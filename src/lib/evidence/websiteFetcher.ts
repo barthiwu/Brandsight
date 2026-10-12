@@ -1,5 +1,7 @@
 import "server-only";
+import net from "node:net";
 import * as cheerio from "cheerio";
+import { Agent } from "undici";
 import { assertSafeExternalUrl } from "./ssrfGuard";
 
 /**
@@ -104,7 +106,12 @@ export async function fetchWebsiteEvidence(rawUrl: string): Promise<WebsiteFetch
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const safety = await assertSafeExternalUrl(currentUrl);
-    if (!safety.ok) {
+    if (!safety.ok || !safety.resolvedIp) {
+      // assertSafeExternalUrl() always sets resolvedIp alongside ok: true
+      // in practice, but failing closed on the (defensive) case where it
+      // didn't is the only safe option — falling through to an unpinned
+      // fetch would silently reopen the DNS-rebinding gap this is here to
+      // close.
       return emptyFailure(safety.reason ?? "Blocked by SSRF policy.");
     }
 
@@ -112,11 +119,33 @@ export async function fetchWebsiteEvidence(rawUrl: string): Promise<WebsiteFetch
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+      // SSRF/DNS-rebinding fix: assertSafeExternalUrl() above resolved this
+      // hostname and validated the address it got back, but a plain
+      // fetch() does its own, independent DNS resolution at connect time.
+      // A short-TTL/rebinding DNS server for an attacker-controlled domain
+      // can return a public address for the check above and then a
+      // private/internal one a moment later for the real request — the
+      // classic TOCTOU bypass of a "resolve once and validate" SSRF guard.
+      // Pinning this request's connection to the exact address that was
+      // just validated (via a disposable per-request dispatcher) closes
+      // that gap: the real request can never land anywhere other than the
+      // address the guard actually approved. TLS SNI and the Host header
+      // still use the original hostname — only the socket's destination
+      // address is overridden — so certificate validation against the
+      // real hostname is unaffected.
+      const dispatcher = pinnedDispatcher(safety.resolvedIp);
       try {
         response = await fetch(currentUrl, {
           redirect: "manual",
           signal: controller.signal,
           headers: { "User-Agent": USER_AGENT, Accept: "text/html,application/xhtml+xml" },
+          // `dispatcher` is a Node/undici-specific RequestInit extension
+          // not present in the lib.dom.d.ts fetch types this project's
+          // tsconfig pulls in; it's correctly honored at runtime by
+          // Node's native fetch (verified directly against a local
+          // server with a custom resolver before relying on it here).
+          // @ts-expect-error -- see comment above
+          dispatcher,
         });
       } finally {
         clearTimeout(timeout);
@@ -150,6 +179,29 @@ export async function fetchWebsiteEvidence(rawUrl: string): Promise<WebsiteFetch
   }
 
   return emptyFailure("Too many redirects.");
+}
+
+/**
+ * Builds a one-off undici Agent whose DNS resolution is hardcoded to the
+ * single address assertSafeExternalUrl() already resolved and validated,
+ * so the real request can't be redirected (via DNS rebinding between the
+ * check and the connect) to anywhere the SSRF guard didn't actually
+ * approve. Only the socket's destination address is overridden — the
+ * request still uses the original URL's hostname for the Host header and
+ * TLS SNI, so certificate validation is unaffected. A fresh Agent per
+ * request (rather than one shared instance) keeps each hop pinned to
+ * that hop's own validated address, since a redirect can move to a
+ * completely different host.
+ */
+function pinnedDispatcher(resolvedIp: string): Agent {
+  const family = net.isIP(resolvedIp);
+  return new Agent({
+    connect: {
+      lookup: (_hostname, _options, callback) => {
+        callback(null, [{ address: resolvedIp, family: family === 6 ? 6 : 4 }]);
+      },
+    },
+  });
 }
 
 async function readBodyWithLimit(response: Response, maxBytes: number): Promise<string | null> {

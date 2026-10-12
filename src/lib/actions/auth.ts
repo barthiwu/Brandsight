@@ -3,8 +3,34 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { signUpSchema, signInSchema, forgotPasswordSchema, resetPasswordSchema } from "@/lib/validation/schemas";
-import { checkRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { checkRateLimit, RATE_LIMITS, IP_RATE_LIMITS } from "@/lib/security/rateLimit";
 import { verifyTurnstileToken } from "@/lib/security/turnstile";
+import { safeRedirectPath } from "@/lib/security/safeRedirect";
+import { getClientIp } from "@/lib/security/clientIp";
+
+/**
+ * Checks the per-email bucket every auth action already had, plus a
+ * secondary per-IP bucket (see clientIp.ts and IP_RATE_LIMITS) so that
+ * rotating through disposable email addresses from one source can no
+ * longer reset the limiter back to zero every time. Returns the first
+ * bucket that's actually over limit, or null when both are fine. A
+ * missing/undeterminable IP just skips that half of the check rather
+ * than blocking the request — the per-email bucket alone is still real
+ * protection.
+ */
+async function checkAuthRateLimit(
+  action: keyof typeof IP_RATE_LIMITS,
+  email: string
+): Promise<{ allowed: boolean }> {
+  const emailResult = await checkRateLimit(`${action}:${email.toLowerCase()}`, RATE_LIMITS[action]);
+  if (!emailResult.allowed) return { allowed: false };
+
+  const ip = await getClientIp();
+  if (!ip) return { allowed: true };
+
+  const ipResult = await checkRateLimit(`${action}-ip:${ip}`, IP_RATE_LIMITS[action]);
+  return { allowed: ipResult.allowed };
+}
 
 export interface AuthActionState {
   error?: string;
@@ -28,7 +54,7 @@ export async function signUpAction(_prev: AuthActionState, formData: FormData): 
     return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
 
-  const rl = await checkRateLimit(`signup:${parsed.data.email.toLowerCase()}`, { limit: 5, windowSeconds: 3600 });
+  const rl = await checkAuthRateLimit("signup", parsed.data.email);
   if (!rl.allowed) return { error: "Too many attempts. Please try again later." };
 
   // No-op until TURNSTILE_SECRET_KEY is configured (see turnstile.ts) —
@@ -76,7 +102,7 @@ export async function signInAction(_prev: AuthActionState, formData: FormData): 
     return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
 
-  const rl = await checkRateLimit(`signin:${parsed.data.email.toLowerCase()}`, { limit: 10, windowSeconds: 900 });
+  const rl = await checkAuthRateLimit("signin", parsed.data.email);
   if (!rl.allowed) return { error: "Too many attempts. Please try again later." };
 
   const supabase = await createClient();
@@ -95,8 +121,7 @@ export async function signInAction(_prev: AuthActionState, formData: FormData): 
     return { error: "Incorrect email or password." };
   }
 
-  const redirectTo = formData.get("redirectTo");
-  redirect(typeof redirectTo === "string" && redirectTo.startsWith("/") ? redirectTo : "/dashboard");
+  redirect(safeRedirectPath(formData.get("redirectTo")));
 }
 
 export async function signOutAction() {
@@ -118,7 +143,7 @@ export async function resendConfirmationAction(_prev: AuthActionState, formData:
   const parsed = forgotPasswordSchema.safeParse({ email: formData.get("email") });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
 
-  const rl = await checkRateLimit(`resend-confirmation:${parsed.data.email.toLowerCase()}`, RATE_LIMITS.resendConfirmation);
+  const rl = await checkAuthRateLimit("resendConfirmation", parsed.data.email);
   if (!rl.allowed) return { error: "Too many attempts. Please try again later." };
 
   const supabase = await createClient();
@@ -135,10 +160,7 @@ export async function forgotPasswordAction(_prev: AuthActionState, formData: For
   const parsed = forgotPasswordSchema.safeParse({ email: formData.get("email") });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
 
-  const rl = await checkRateLimit(`forgot-password:${parsed.data.email.toLowerCase()}`, {
-    limit: 5,
-    windowSeconds: 3600,
-  });
+  const rl = await checkAuthRateLimit("forgotPassword", parsed.data.email);
   if (!rl.allowed) return { error: "Too many attempts. Please try again later." };
 
   const supabase = await createClient();
@@ -156,6 +178,22 @@ export async function resetPasswordAction(_prev: AuthActionState, formData: Form
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
 
   const supabase = await createClient();
+
+  // Every other mutating auth action here rate-limits itself; this one
+  // didn't. Impact was already bounded — updateUser() requires a session
+  // obtained via the one-time recovery-link code exchange in
+  // /auth/callback, so this was never directly brute-forceable by an
+  // outsider — but it's still an unbounded-attempts write with no
+  // backstop, and keeping every mutating action on the same pattern
+  // means a future change elsewhere can't quietly skip it.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (user) {
+    const rl = await checkRateLimit(`reset-password:${user.id}`, RATE_LIMITS.resetPassword);
+    if (!rl.allowed) return { error: "Too many attempts. Please try again later." };
+  }
+
   const { error } = await supabase.auth.updateUser({ password: parsed.data.password });
   if (error) return { error: error.message };
 

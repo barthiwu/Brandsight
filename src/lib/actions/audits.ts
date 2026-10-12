@@ -72,6 +72,25 @@ export async function saveAuditResponsesAction(input: unknown): Promise<{ ok: bo
   if (!parsed.success) return { ok: false, error: "Invalid response payload." };
 
   const supabase = await createClient();
+  // Defense-in-depth (security audit finding): RLS (migration 0005)
+  // already scopes audit_responses writes to the audit's owner, so this
+  // was never an active IDOR — but every other mutating action in this
+  // file checks ownership explicitly (see submitAuditForProcessingAction
+  // above), and this autosave action, called on every keystroke's
+  // debounce, previously didn't.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Not signed in." };
+
+  const { data: audit } = await supabase
+    .from("audits")
+    .select("id")
+    .eq("id", parsed.data.audit_id)
+    .eq("owner_id", user.id)
+    .maybeSingle();
+  if (!audit) return { ok: false, error: "Audit not found." };
+
   const rows = parsed.data.responses.map((r) => ({
     audit_id: parsed.data.audit_id,
     section: r.section,
@@ -173,6 +192,20 @@ export async function submitAuditForProcessingAction(auditId: string): Promise<A
 
 export async function cancelAuditAction(auditId: string) {
   const supabase = await createClient();
+  // Defense-in-depth (security audit finding): see requireOwnedBrand's
+  // comment in brands.ts for the general rationale — RLS (migration 0005)
+  // already scopes this update to the audit's owner, so a cross-account
+  // call was already a 0-row no-op, not an active IDOR. Checking
+  // explicitly just avoids silently redirecting to "/audits" as if the
+  // cancel succeeded when it didn't.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const { data: audit } = await supabase.from("audits").select("id").eq("id", auditId).eq("owner_id", user.id).maybeSingle();
+  if (!audit) redirect("/audits");
+
   await supabase.from("audits").update({ status: "cancelled" }).eq("id", auditId);
   revalidatePath("/audits");
   redirect("/audits");
@@ -215,6 +248,18 @@ export async function deleteAuditAction(auditId: string): Promise<ActionState> {
 
 export async function retryAuditAction(auditId: string) {
   const supabase = await createClient();
+  // Defense-in-depth (security audit finding): same rationale as
+  // cancelAuditAction above — RLS already scopes this, so this was never
+  // an active IDOR, but checking explicitly avoids pretending a
+  // cross-account retry attempt did something when it silently didn't.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const { data: audit } = await supabase.from("audits").select("id").eq("id", auditId).eq("owner_id", user.id).maybeSingle();
+  if (!audit) redirect(`/audits/${auditId}`);
+
   await supabase.from("audits").update({ status: "ready", processing_error: null }).eq("id", auditId).eq("status", "failed");
   revalidatePath(`/audits/${auditId}`);
   redirect(`/audits/${auditId}`);

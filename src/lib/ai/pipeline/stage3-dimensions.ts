@@ -17,7 +17,7 @@ import type { AuditContext } from "./context";
 export async function runDimensionAnalysisStage(
   ctx: AuditContext,
   normalized: NormalizedContext,
-  assetAnalysisByFileName?: Map<string, string>,
+  assetAnalysisByAssetId?: Map<string, string>,
   competitorEvidenceLines?: string[]
 ): Promise<DimensionAnalysis[]> {
   const rubric = ALL_DIMENSION_KEYS.map((key) => {
@@ -35,7 +35,7 @@ ${rubric}`;
 
   const input = wrapExternalData(
     "audit_context",
-    renderContextForPrompt(ctx, normalized, assetAnalysisByFileName, competitorEvidenceLines)
+    renderContextForPrompt(ctx, normalized, assetAnalysisByAssetId, competitorEvidenceLines)
   );
 
   const result = await callStructuredStage({

@@ -77,6 +77,26 @@ export const socialProfileSchema = z.object({
 
 export const socialProfileListSchema = z.array(socialProfileSchema).max(10);
 
+// Security/bug-audit fix: upsertMarketingProfileAction previously took
+// formData.getAll("channels")/formData.get(...) straight into an
+// upsert() with no shape or length validation at all — unlike every
+// sibling brand action above, which all run through a Zod schema with
+// length caps. content_creation_process/marketing_budget_range/etc are
+// unbounded `text` columns with no DB-side cap either, and this data
+// later gets concatenated directly into the Stage 1 normalize prompt
+// (stage1-normalize.ts) before the combined context is truncated — so
+// an attacker-sized payload here was stored in full (real row-size/DB
+// cost) even though only a few thousand characters of it could ever
+// reach the model.
+export const marketingProfileSchema = z.object({
+  channels: z.array(z.string().trim().max(100)).max(20),
+  posting_frequency: z.string().trim().max(200).optional().or(z.literal("")),
+  advertising_active: z.boolean(),
+  content_creation_process: z.string().trim().max(2000).optional().or(z.literal("")),
+  marketing_team_size: z.string().trim().max(200).optional().or(z.literal("")),
+  marketing_budget_range: z.string().trim().max(200).optional().or(z.literal("")),
+});
+
 // ---------------------------------------------------------------------------
 // Audits
 // ---------------------------------------------------------------------------

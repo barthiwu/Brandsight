@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runAuditPipeline } from "@/lib/ai/pipeline/runPipeline";
 import { checkRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { notifyAdminOfCapacityOverrun } from "@/lib/notifications/adminAlert";
+import { notifyAdminOfCapacityOverrun, notifyAdminOfPipelineFailure } from "@/lib/notifications/adminAlert";
 import type { Database } from "@/types/database";
 
 // AI pipeline calls are sequential and can legitimately take a couple of
@@ -53,25 +53,42 @@ const CAPACITY_WAIT_MAX_MS = 60_000;
  * a *different* request already won the lock for this specific audit
  * (e.g. a duplicate click) — genuinely nothing to do here, not a
  * capacity issue at all.
+ *
+ * `lockError` is set only when an RPC call itself failed (a transient
+ * Supabase/network error), as opposed to a normal `false` result. This
+ * distinction matters: a bug here previously let a failed force-admit
+ * RPC call (`data` comes back null/undefined on an error, since only
+ * `error` was ever checked) fall through to `acquired: false`,
+ * `admittedOverCapacity: true` — and the route's own `if (!acquired)`
+ * branch returned early with a generic "already in progress" response
+ * *before* ever checking `admittedOverCapacity`, so neither the pipeline
+ * nor the admin alert ever ran. The audit's row never left
+ * "ready"/"failed" (the force-admit UPDATE never happened), nothing was
+ * ever going to retry it, and the client had just been told "processing"
+ * — a permanently stuck audit with zero visibility into why. Surfacing
+ * `lockError` lets the caller record a real failure instead of silently
+ * doing nothing.
  */
-async function acquireProcessingSlot(
+export async function acquireProcessingSlot(
   admin: SupabaseClient<Database>,
   auditId: string
-): Promise<{ acquired: boolean; admittedOverCapacity: boolean }> {
+): Promise<{ acquired: boolean; admittedOverCapacity: boolean; lockError?: string }> {
   const deadline = Date.now() + CAPACITY_WAIT_MAX_MS;
 
   for (;;) {
-    const { data: lockAcquired } = await admin.rpc("try_lock_audit_processing", {
+    const { data: lockAcquired, error: lockError } = await admin.rpc("try_lock_audit_processing", {
       p_audit_id: auditId,
       p_max_concurrent: MAX_CONCURRENT_AUDITS,
     });
+    if (lockError) return { acquired: false, admittedOverCapacity: false, lockError: lockError.message };
     if (lockAcquired) return { acquired: true, admittedOverCapacity: false };
 
     // A false result means either "at capacity" or "someone else already
     // claimed THIS audit" — check which, so a duplicate-click case
     // returns immediately instead of waiting out the whole window for an
     // audit that's already progressing under a different request.
-    const { data: current } = await admin.from("audits").select("status").eq("id", auditId).maybeSingle();
+    const { data: current, error: statusError } = await admin.from("audits").select("status").eq("id", auditId).maybeSingle();
+    if (statusError) return { acquired: false, admittedOverCapacity: false, lockError: statusError.message };
     if (current?.status !== "ready" && current?.status !== "failed") {
       return { acquired: false, admittedOverCapacity: false };
     }
@@ -85,10 +102,11 @@ async function acquireProcessingSlot(
   );
   // Postgres's `int` (int4) tops out at 2147483647 — not
   // Number.MAX_SAFE_INTEGER, which would overflow it and error.
-  const { data: forced } = await admin.rpc("try_lock_audit_processing", {
+  const { data: forced, error: forceError } = await admin.rpc("try_lock_audit_processing", {
     p_audit_id: auditId,
     p_max_concurrent: 2147483647,
   });
+  if (forceError) return { acquired: false, admittedOverCapacity: true, lockError: forceError.message };
   return { acquired: Boolean(forced), admittedOverCapacity: true };
 }
 
@@ -122,7 +140,22 @@ export async function POST(_request: Request, { params }: RouteParams) {
   }
 
   const admin = createAdminClient();
-  const { acquired, admittedOverCapacity } = await acquireProcessingSlot(admin, auditId);
+  const { acquired, admittedOverCapacity, lockError } = await acquireProcessingSlot(admin, auditId);
+
+  if (lockError) {
+    // A real infra failure trying to acquire the lock itself — distinct
+    // from "someone else already has it" (benign, handled below). Record
+    // it as a real failure so the audit doesn't sit at "ready"/"failed"
+    // forever with nothing ever acting on it again and no visibility
+    // into why (see acquireProcessingSlot's doc comment for the bug this
+    // closes).
+    await admin
+      .from("audits")
+      .update({ status: "failed", processing_error: `Could not start processing: ${lockError}` })
+      .eq("id", auditId);
+    void notifyAdminOfPipelineFailure(auditId, `acquireProcessingSlot: ${lockError}`);
+    return NextResponse.json({ error: "Could not start processing. Please try again." }, { status: 503 });
+  }
 
   if (!acquired) {
     // Another request already won the lock (e.g. a duplicate click) —

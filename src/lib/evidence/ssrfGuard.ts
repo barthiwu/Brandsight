@@ -44,7 +44,18 @@ export async function assertSafeExternalUrl(rawUrl: string): Promise<SafeUrlChec
     return { ok: false, reason: "Only http and https URLs are allowed." };
   }
 
-  const hostname = url.hostname.toLowerCase();
+  // url.hostname keeps the surrounding brackets for a literal IPv6 host
+  // (new URL("http://[::1]/").hostname === "[::1]"), which neither
+  // BLOCKED_HOSTNAMES nor net.isIP()/dns.lookup() recognize as the bare
+  // address "::1" — so a bracketed IPv6 literal fell through to a DNS
+  // lookup of the literal string "[::1]", which always fails and gets
+  // reported as "Could not resolve this host." That still fails *closed*
+  // (nothing gets through), so it was never a bypass, but it means every
+  // legitimate IPv6-literal URL was wrongly rejected, and the IPv6 branch
+  // of isPrivateOrReservedIp was unreachable from this path. Strip the
+  // brackets before any check so a bracketed literal is classified the
+  // same way an unbracketed one or a DNS-resolved IPv6 address is.
+  const hostname = url.hostname.toLowerCase().replace(/^\[(.+)\]$/, "$1");
   if (BLOCKED_HOSTNAMES.has(hostname)) {
     return { ok: false, reason: "This host is not allowed." };
   }

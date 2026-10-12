@@ -17,12 +17,13 @@
     "@supabase/ssr": "^0.12.6",
     "@supabase/supabase-js": "^2.115.0",
     "cheerio": "^1.2.0",
-    "next": "16.3.4",
+    "next": "^16.4.0",
     "openai": "^7.10.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "resend": "^6.27.0",
     "server-only": "^0.0.1",
+    "undici": "^7.29.1",
     "zod": "^4.5.4"
   },
   "devDependencies": {
@@ -32,7 +33,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.3.4",
+    "eslint-config-next": "^16.4.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.13",
     "typescript": "^5",
